@@ -13,7 +13,7 @@ class listenerThread(threading.Thread):
 
     def __init__(self):
         threading.Thread.__init__(self, name='listener')
-        self.shutdown = False
+        #self.shutdown = False
         self._stop_event = threading.Event()
         self.is_listening = False
         self.hostup_counter = 0
@@ -84,23 +84,41 @@ class udpSenderThread(threading.Thread):
         self.hostparts_tuple_list = hostparts_tuple_list
         self.network_address = self.calc_netw_address(self.netw_part)
         self.waitlock = threading.Lock()
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def stopped(self):
+        return self._stop_event.is_set()
 
     def run(self):
-        sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        self.waitlock.acquire() # gettring released outside
+            self.waitlock.acquire() # gettring released outside
 
-        print('Sending packets to {}'.format(self.network_address))
-        tb = None
-        for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_list):
-            dd_addr = self.bin_to_dotted_decimal(bin_addr)
+            print('Sending packets to {}'.format(self.network_address))
+            tb = None
+            for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_list):
+                if self.stopped():
+                    break; # in case of stop msg from outsde: stop sending
+                dd_addr = self.bin_to_dotted_decimal(bin_addr)
+                try:
+                    sender.sendto(bytes(8), (dd_addr, self.closed_port))
+                    #print('++ pkg sent to {}, {}'.format(dd_addr, 66533))
+                except:
+                    #print('sendig failed')
+                    #tb = format_exc()
+                    #print(tb)
+                    pass
+        except KeyboardInterrupt:
+            print('sender thread interrupted by user')
+        finally:
             try:
-                sender.sendto(bytes(8), (dd_addr, self.closed_port))
-                #print('++ pkg sent to {}, {}'.format(dd_addr, 66533))
+                sender.close()
             except:
-                #print('sendig failed')
-                tb = format_exc()
-                print(tb)
+                pass
         #print('Sender thread finished')
 
     def yield_next_addr_bin(self, netw_part, hostparts_tuple_list):
