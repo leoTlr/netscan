@@ -73,10 +73,16 @@ class listenerThread(threading.Thread):
 
 
 class udpSenderThread(threading.Thread):
-    def __init__(self, netw_part, hostparts_tuple_list):
+    """ Thread for sending UDP packets to every Host in subnetself.
+        Default Port is 65333. This port hopefully is closed on target systems,
+        so they return 'ICMP: Port unreachable' """
+
+    def __init__(self, netw_part, hostparts_tuple_list, closed_port=65333):
         threading.Thread.__init__(self, name='udp-sender')
+        self.closed_port = closed_port
         self.netw_part = netw_part
         self.hostparts_tuple_list = hostparts_tuple_list
+        self.network_address = self.calc_netw_address(self.netw_part)
         self.waitlock = threading.Lock()
 
     def run(self):
@@ -84,12 +90,12 @@ class udpSenderThread(threading.Thread):
 
         self.waitlock.acquire() # gettring released outside
 
-        print('Sending packets to subnet')
+        print('Sending packets to {}'.format(self.network_address))
         tb = None
         for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_list):
             dd_addr = self.bin_to_dotted_decimal(bin_addr)
             try:
-                sender.sendto(bytes(8), (dd_addr, 65333)) # 65333 = hopefully unsused port
+                sender.sendto(bytes(8), (dd_addr, self.closed_port))
                 #print('++ pkg sent to {}, {}'.format(dd_addr, 66533))
             except:
                 #print('sendig failed')
@@ -110,3 +116,9 @@ class udpSenderThread(threading.Thread):
         # time elapsed:  11.701575517654419 for this with /12 subnet
         # time elapsed:  21.34294080734253 for '.'join([str(item) for item in blocklist])
         # maybe test bitstring module
+
+    def calc_netw_address(self, netw_part):
+        # returns the network address of given subnet in cidr notation
+        subnet = len(netw_part)
+        dd_netw_address = self.bin_to_dotted_decimal(netw_part+'0'*(32-len(netw_part)))
+        return '{}/{}'.format(dd_netw_address, subnet)

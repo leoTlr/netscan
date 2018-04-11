@@ -5,6 +5,7 @@ import argparse
 import threading
 import socket # test for root
 from itertools import product # calc_addr_range()
+from re import fullmatch # address validation
 
 from ressources.protocol_structs import IP, ICMP
 from ressources.thread_classes import listenerThread, udpSenderThread
@@ -13,13 +14,20 @@ from traceback import format_exc # debug
 import time # debug
 
 parser = argparse.ArgumentParser()
-parser.add_argument('network_address', help='IPv4 Address in CIDR-notation')
+
+parser.add_argument('ip_address', help='IPv4 Address in CIDR-notation')
+parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation \
+                    (only needed if ip_address not in CIDR)')
+
 args = parser.parse_args()
 
 
-def main(cidr_type_address):
+def main(cidr_type_address, dd_netmask=None):
     # separates address to network part and all possible hostparts in subnet
-    netw_part, subnet, hostparts_tuple_list = calc_addr_range(cidr_type_address)
+    if not dd_netmask:
+        netw_part, subnet, hostparts_tuple_list = cidr_calc_addr_range(cidr_type_address)
+    else:
+        netw_part, subnet, hostparts_tuple_list = dd_netmask_calc_addr_range(addr, dd_netmask)
 
     # remove network and broadcast addresses
     # /31 produces an empty list, sice there are no host-addresses
@@ -49,7 +57,7 @@ def main(cidr_type_address):
         listener_thread.hostup_counter,
         sender_thread.bin_to_dotted_decimal(netw_addr), subnet ))
 
-def calc_addr_range(cidr_type_addr):
+def cidr_calc_addr_range(cidr_type_addr):
     subnet = int(cidr_type_addr[-2:])
 
     # create string of binary address
@@ -77,8 +85,43 @@ def printHeaders(header_list):
                 print('-{:15}{}'.format(tup[0]+':', getattr(header, tup[0])))
         print()
 
+def is_valid_cidr(address):
+    try:
+        split = address.split('/')
+        if len(split)==2:
+            hostpart = split[0]
+            split_hostpart = hostpart.split('.')
+            subnet = int(split[1])
+            if not 0<subnet<=32:
+                return False
+            elif not len(split_hostpart)==4:
+                return False
+            elif not all([0<=int(nr)<=255 for nr in split_hostpart]):
+                return False
+            else:
+                return True
+        else:
+            return False
+    except:
+        return False
 
-if args.network_address:
+def is_valid_dd_netmask(address, netmask): # TODO
+    try:
+        addr_split = address.split('.')
+        netm_split = netmask.split('.')
+        if not len(addr.split)==4 or not len(netm_split)==4:
+            return False
+        elif not all([0<=int(nr)<=255 for nr in addr_split]):
+            return False
+        elif not all([0<=int(nr)<=255 for nr in netm_split]):
+            return False
+        else:
+            return False
+    except:
+        return False
+
+
+if args.ip_address:
     run = True
     try:
         # if this fails, exit
@@ -95,7 +138,12 @@ if args.network_address:
         except:
             pass
     if run:
-        main(args.network_address)
+        if is_valid_cidr(args.ip_address):
+            main(args.ip_address)
+        elif is_valid_dd_netmask(args.ip_address, args.netmask):
+            main(args.ip_address, args.netmask)
+        else:
+            print('input address not valid')
 else:
     print('No address given.')
 #%%
