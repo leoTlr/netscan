@@ -58,7 +58,7 @@ def main(address, dd_netmask=None):
         sender_thread.bin_to_dotted_decimal(netw_addr), subnet ))
 
 def calc_addr_range(address, netmask=None):
-    # takes either cidr-type address or dotted decimal address + dotted decimal netmask
+    # takes either cidr-type address OR dotted decimal address + dotted decimal netmask
     # Important: validation needs to be done before
 
     # create string of binary address
