@@ -2,9 +2,9 @@
 
 import threading
 import socket
-from traceback import format_exc
-from .protocol_structs import IP, ICMP
-from ctypes import sizeof
+from traceback import format_exc # debug
+from .protocol_structs import IP, ICMP # udpSenderThread.run()
+from ctypes import sizeof # udpSenderThread.run()
 
 
 class listenerThread(threading.Thread):

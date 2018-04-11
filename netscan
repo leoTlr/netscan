@@ -22,12 +22,12 @@ parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation
 args = parser.parse_args()
 
 
-def main(cidr_type_address, dd_netmask=None):
+def main(address, dd_netmask=None):
     # separates address to network part and all possible hostparts in subnet
-    if not dd_netmask:
-        netw_part, subnet, hostparts_tuple_list = cidr_calc_addr_range(cidr_type_address)
-    else:
-        netw_part, subnet, hostparts_tuple_list = dd_netmask_calc_addr_range(addr, dd_netmask)
+    if not dd_netmask: # cidr-notation
+        netw_part, subnet, hostparts_tuple_list = calc_addr_range(address)
+    else: # non-cidr-notation
+        netw_part, subnet, hostparts_tuple_list = calc_addr_range(address, dd_netmask)
 
     # remove network and broadcast addresses
     # /31 produces an empty list, sice there are no host-addresses
@@ -46,32 +46,46 @@ def main(cidr_type_address, dd_netmask=None):
     if listener_thread.is_listening:
         sender_thread.waitLock.release()
 
-    # wait for sender thread to complete
-    sender_thread.join()
-    time.sleep(2) # wait for responses
+
+    sender_thread.join(timeout=5) # wait for sender thread to complete
+    time.sleep(2) # wait for late responses
     listener_thread.stop()
-    listener_thread.join() # wait for listener to finish
+    listener_thread.join(timeout=5) # wait for listener to finish
 
     netw_addr = netw_part+'0'*(32-len(netw_part))
     print('Scan completed. {} hosts up in {}/{}'.format(
         listener_thread.hostup_counter,
         sender_thread.bin_to_dotted_decimal(netw_addr), subnet ))
 
-def cidr_calc_addr_range(cidr_type_addr):
-    subnet = int(cidr_type_addr[-2:])
+def calc_addr_range(address, netmask=None):
+    # takes either cidr-type address or dotted decimal address + dotted decimal netmask
+    # Important: validation needs to be done before
 
     # create string of binary address
-    addr_blocks = [int(block) for block in cidr_type_addr[:-3].split('.')]
-    bin_addr = "{0:08b}{1:08b}{2:08b}{3:08b}".format(*addr_blocks)
+    if not netmask:
+        addr_blocks = [int(block) for block in address[:-3].split('.')]
+    else:
+        addr_blocks = [int(block) for block in address.split('.')]
 
-    netw_part = bin_addr[:subnet]
+    bin_addr = '{0:08b}{1:08b}{2:08b}{3:08b}'.format(*addr_blocks)
+
+    if not netmask:
+        subnet = int(address[-2:]) # just take subnet nr after /
+    else:
+        # create string of binary netmask and cout ones
+        netm_blocks = [int(block) for block in netmask.split('.')]
+        bin_netm = '{0:08b}{1:08b}{2:08b}{3:08b}'.format(*netm_blocks)
+        subnet = bin_netm.count('1')
+
+    bin_netw_part = bin_addr[:subnet]
 
     # create list of all possible hostparts (stored as tuples, i.e. (0,0,0,1)
-    return (netw_part, subnet, [tup for tup in product(range(2), repeat=32-subnet)])
+    return (bin_netw_part, subnet, [tup for tup in product(range(2), repeat=32-subnet)])
+
 
 
 def printHeaders(header_list):
-    # prints out field info from given header
+    # prints out field info from given headers
     cntr = 1
     for header in header_list:
         print('Header nr {}:'.format(cntr))
@@ -105,18 +119,27 @@ def is_valid_cidr(address):
     except:
         return False
 
-def is_valid_dd_netmask(address, netmask): # TODO
+def is_valid_dd_netmask(address, netmask):
     try:
         addr_split = address.split('.')
         netm_split = netmask.split('.')
-        if not len(addr.split)==4 or not len(netm_split)==4:
+        bin_netm = '{0:08b}{1:08b}{2:08b}{3:08b}'.format(*[int(block) for block in netm_split])
+        if not len(addr_split)==4:
             return False
         elif not all([0<=int(nr)<=255 for nr in addr_split]):
             return False
         elif not all([0<=int(nr)<=255 for nr in netm_split]):
             return False
-        else:
+        elif not fullmatch('^(1{0,31}0{0,31})$', bin_netm):
+            # attention: pattern only checks for bin_netm being ones followed by zeroes
+            # BUT also matches len(bin_netm) != 32
+            # -> need to explicitly check len
+            print('fullmatch failed', bin_netm)
             return False
+        elif not len(bin_netm)==32:
+            return False
+        else:
+            return True
     except:
         return False
 
@@ -124,7 +147,7 @@ def is_valid_dd_netmask(address, netmask): # TODO
 if args.ip_address:
     run = True
     try:
-        # if this fails, exit
+        # if this fails, dont run main
         test_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
     except PermissionError:
         run = False
