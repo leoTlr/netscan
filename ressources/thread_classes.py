@@ -35,7 +35,7 @@ class listenerThread(threading.Thread):
 
             print('Listening for incoming packets...')
             while not self.stopped():
-                self.is_listening = True
+
                 # read a packet
                 raw_buffer = sniffer.recvfrom(65565)[0]
 
@@ -58,6 +58,8 @@ class listenerThread(threading.Thread):
                     if icmp_header.code == 3 and icmp_header.type == 3:
                         print('[*] Host up: {}'.format(ip_header.src_addr))
                         self.hostup_counter += 1
+
+                self.is_listening = True
 
         except:
             tb = format_exc()

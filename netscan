@@ -8,7 +8,6 @@ from itertools import product # calc_addr_range()
 from re import fullmatch # address validation
 import time # wait for late responses
 
-from ressources.protocol_structs import IP, ICMP
 from ressources.thread_classes import listenerThread, udpSenderThread
 
 from traceback import format_exc # debug
@@ -62,7 +61,7 @@ def main(address, dd_netmask=None):
             sender_thread.stop()
         except:
             pass
-            
+
         netw_addr = netw_part+'0'*(32-len(netw_part))
         print('Scan completed. {} hosts up in {}/{}'.format(
         listener_thread.hostup_counter,
@@ -95,23 +94,6 @@ def calc_addr_range(address, netmask=None):
 
     # create list of all possible hostparts (stored as tuples, i.e. (0,0,0,1)
     return (bin_netw_part, subnet, [tup for tup in product(range(2), repeat=32-subnet)])
-
-
-
-def printHeaders(header_list):
-    # prints out field info from given headers
-    cntr = 1
-    for header in header_list:
-        print('Header nr {}:'.format(cntr))
-        cntr += 1
-        for tup in header._fields_:
-            if tup[0] == 'src':
-                print('-{:15}{}'.format('src:', header.src_addr))
-            elif tup[0] == 'dst':
-                print('-{:15}{}'.format('dst:', header.dst_addr))
-            else:
-                print('-{:15}{}'.format(tup[0]+':', getattr(header, tup[0])))
-        print()
 
 def is_valid_cidr(address):
     try:
@@ -168,7 +150,7 @@ if args.ip_address:
         print('root needed')
     except:
         run = False
-        print('Cannot create socket')
+        print('Cannot create socket.')
     finally:
         try:
             test_socket.close()
