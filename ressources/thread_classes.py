@@ -3,7 +3,7 @@
 import threading
 import socket
 from traceback import format_exc # debug
-from .protocol_structs import IP, ICMP # udpSenderThread.run()
+from .protocol_structs import IP, ICMP, Ether # udpSenderThread.run(), listenerThread.run()
 from ctypes import sizeof # udpSenderThread.run()
 
 
@@ -13,10 +13,10 @@ class listenerThread(threading.Thread):
 
     def __init__(self):
         threading.Thread.__init__(self, name='listener')
-        #self.shutdown = False
         self._stop_event = threading.Event()
         self.is_listening = False
         self.hostup_counter = 0
+        self.header_lst = []
 
     def stop(self):
         self._stop_event.set()
@@ -27,51 +27,75 @@ class listenerThread(threading.Thread):
     def run(self):
         try:
             addr = socket.gethostname()
-            sniffer = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-            sniffer.bind((addr, 0))
-            sniffer.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
 
-            tb = None # assignment for traceback
+            # family=AF_PPACKET and proto=socket.ntohs(0x0003)
+            # outputs complete ethernet frames
+            sniffer = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
 
             print('Listening for incoming packets...')
             while not self.stopped():
 
                 # read a packet
-                raw_buffer = sniffer.recvfrom(65565)[0]
+                raw_packet = sniffer.recvfrom(65565)[0]
+                eth_len = 14 # without VLAN-tag
 
-                # create IP header from first 20 bytes
-                ip_header = IP(raw_buffer[:20])
-                #sniffed_headers.append(ip_header)
+                eth_header = Ether(raw_packet[:eth_len])
 
-                #print detected protocol and hosts
-                #print('[*] Protocol: {} {} -> {}'.format(
-                #    ip_header.protocol, ip_header.src_addr, ip_header.dst_addr))
+                #tst_eth = unpack('!6s6sH', raw_packet[:14])
+                #field_id = socket.ntohs(tst_eth[2])
+                #print('type_id: ', field_id, eth_header.type_id, eth_header.protocol)
 
-                if ip_header.protocol == 'ICMP':
-                    offset = ip_header.ihl*4
-                    buf = raw_buffer[offset:offset+sizeof(ICMP)]
-                    icmp_header = ICMP(buf)
-                    #print('ICMP -> Type: {}, Code: {}'.format(
-                    #    icmp_header.type, icmp_header.code))
+                # 8 = IP
+                if eth_header.type_id == 8:
+                    ip_header = IP(raw_packet[eth_len:eth_len+20])
 
-                    # check for destination port unreachable message
-                    if icmp_header.code == 3 and icmp_header.type == 3:
-                        print('[*] Host up: {}'.format(ip_header.src_addr))
-                        self.hostup_counter += 1
+                    if ip_header.protocol == 'ICMP':
+                        offset = ip_header.ihl*4
+                        buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
+
+                        icmp_header = ICMP(buffer)
+
+                        # check for destination port unreachable message
+                        if icmp_header.code == 3 and icmp_header.type == 3:
+                            print('[*] Host up:    IPv4: {}    MAC: {}'.format(
+                                ip_header.src_addr, eth_header.src_addr))
+
+                            self.hostup_counter += 1
+                            # TODO not counter because of double answers etc
 
                 self.is_listening = True
 
         except:
-            tb = format_exc()
+            print(format_exc())
         finally:
-            if tb:
-                print(tb)
+            self.printHeaderFields(self.header_lst)
             try:
                 sniffer.close()
             except:
-                print(format_exc())
-            #print('Listener stopped')
+                pass
 
+    def printHeaderFields(self, headers): # for debug
+        # prints out field info from given headers
+        cntr = 1
+        try:
+            for header in headers:
+                print('Header nr {}:'.format(cntr))
+                cntr += 1
+                for tup in header._fields_:
+                    if tup[0] == 'src':
+                        print('-{:15}{}'.format('src:', header.src_addr))
+                    elif tup[0] == 'dst':
+                        print('-{:15}{}'.format('dst:', header.dst_addr))
+                    else:
+                        print('-{:15}{}'.format(tup[0]+':', getattr(header, tup[0])))
+                try:
+                    if header.has_vlan_tag:
+                        print('Has VLAN tag')
+                except:
+                    pass
+                print()
+        except:
+            pass
 
 
 class udpSenderThread(threading.Thread):
@@ -101,7 +125,6 @@ class udpSenderThread(threading.Thread):
             self.waitlock.acquire() # gettring released outside
 
             print('Sending packets to {}'.format(self.network_address))
-            tb = None
             for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_list):
                 if self.stopped():
                     break; # in case of stop msg from outsde: stop sending
@@ -116,6 +139,8 @@ class udpSenderThread(threading.Thread):
                     pass
         except KeyboardInterrupt:
             print('sender thread interrupted by user')
+        except:
+            print(format_exc())
         finally:
             try:
                 sender.close()

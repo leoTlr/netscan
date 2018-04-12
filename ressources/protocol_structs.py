@@ -6,6 +6,37 @@ from ctypes import *
 
 """ Structures with c-type fields as container for packet data  """
 
+class Ether(Structure):
+    _fields_ = [
+        ('dst', c_uint16*3),
+        ('src', c_uint16*3),
+        ('type_id', c_ushort), # not 802.1Q VLAN TPID, just regular ether type field
+    ]
+
+    def __new__(self, socket_buffer):
+        self.dst_addr = socket_buffer[:6] # grab the bytes objects directly
+        self.src_addr = socket_buffer[6:12] # before they get put into int
+
+        return self.from_buffer_copy(socket_buffer)
+
+    def __init__(self, socket_buffer):
+        # make the dst and src addresses human-readable
+        self.dst_addr = self._convert_addresses(self.dst_addr)
+        self.src_addr = self._convert_addresses(self.src_addr)
+
+        self.protocol_map = {8:'IP'} # TODO
+
+        self.has_vlan_tag = False
+
+        try:
+            self.protocol = self.protocol_map[self.type_id]
+        except:
+            self.protocol = str(self.type_id)
+
+    def _convert_addresses(self, address_bytelst):
+        return '{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}'.format(*address_bytelst)
+
+
 class IP(Structure):
     _fields_ = [
         ('ihl', c_ubyte, 4),
