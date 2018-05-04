@@ -110,6 +110,7 @@ class udpSenderThread(threading.Thread):
         self.hostparts_tuple_list = hostparts_tuple_list
         self.network_address = self.calc_netw_address(self.netw_part)
         self.waitlock = threading.Lock()
+        self.start_event = threading.Event()
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -122,7 +123,8 @@ class udpSenderThread(threading.Thread):
         try:
             sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-            self.waitlock.acquire() # gettring released outside
+            #self.waitlock.acquire() # gettring released outside
+            self.start_event.wait()
 
             print('Sending packets to {}'.format(self.network_address))
             for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_list):
@@ -134,8 +136,6 @@ class udpSenderThread(threading.Thread):
                     #print('++ pkg sent to {}, {}'.format(dd_addr, 66533))
                 except:
                     #print('sendig failed')
-                    #tb = format_exc()
-                    #print(tb)
                     pass
         except KeyboardInterrupt:
             print('sender thread interrupted by user')
