@@ -1,5 +1,4 @@
 #!/usr/bin/python
-#%%
 
 import argparse
 import threading
@@ -20,6 +19,8 @@ parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation
                     (only needed if ip_address not in CIDR)')
 parser.add_argument('-w', '--wait', help='define time (seconds) to wait for responses \
                      after all packets are sent. Default 2', type=int)
+parser.add_argument('-p', '--port', help='define a closed UDP port to use. Default 65333',
+                    type=int)
 
 args = parser.parse_args()
 
@@ -42,7 +43,7 @@ def main(address, dd_netmask=None):
         listener_thread.start()
 
         # create sender thread
-        sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen)
+        sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen, args.port)
         sender_thread.start()
 
         # start sending as soon as listener thread is ready
@@ -76,7 +77,6 @@ def main(address, dd_netmask=None):
         listener_thread.hostup_counter,
         sender_thread.bin_to_dotted_decimal(netw_addr),
         subnet ))
-
 
 def calc_addr_range(address, netmask=None):
     # takes either cidr-type address OR dotted decimal address + dotted decimal netmask
@@ -152,6 +152,9 @@ def is_valid_dd_netmask(address, netmask):
 
 if args.ip_address:
     run = True
+    if args.port and not 1 <= args.port <= 65535:
+        print('invalid port')
+        run = False
     try:
         # if this fails, dont run main
         test_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
@@ -175,4 +178,3 @@ if args.ip_address:
             print('input address not valid')
 else:
     print('No address given.')
-#%%

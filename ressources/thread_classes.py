@@ -41,9 +41,9 @@ class listenerThread(threading.Thread):
                 eth_len = 14 # without VLAN-tag 14, with 18. Only 14 needed to determine
 
                 eth_header = Ether(raw_packet[:eth_len])
-                if eth_header.has_vlan_tag:
-                    print('VLAN FRAME: ', unpack('!6s6s4s4sH', raw_packet[:18]))
-                    eth_len = 18
+                #if eth_header.has_vlan_tag: # TODO
+                #    print('VLAN FRAME: ', unpack('!6s6s4s4sH', raw_packet[:18]))
+                #    eth_len = 18
 
                 #tst_eth = unpack('!6s6sH', raw_packet[:14])
                 #field_id = socket.ntohs(tst_eth[2])
@@ -61,9 +61,12 @@ class listenerThread(threading.Thread):
 
                         # check for destination port unreachable message
                         if icmp_header.code == 3 and icmp_header.type == 3:
+                            # prevent double counting
                             if not icmp_header.checksum in self.hostup_set:
-                                print('[*] Host up:    IPv4: {}    MAC: {}'.format(
-                                    ip_header.src_addr, eth_header.src_addr))
+                                ip_str = 'IPv4: {}'.format(ip_header.src_addr)
+                                mac_str = 'MAC: {}'.format(eth_header.src_addr)
+                                print('[*] Host up:    {:<22}  {}'.format(ip_str, mac_str))
+
                                 self.hostup_set.add(icmp_header.checksum)
                                 self.hostup_counter += 1
 
