@@ -19,7 +19,6 @@ class listenerThread(threading.Thread):
         self.hostup_set = set() # stores checksums of headers to prevent counting them multiple times
         self.header_lst = []
 
-
     def stop(self):
         self._stop_event.set()
 
@@ -107,11 +106,11 @@ class udpSenderThread(threading.Thread):
         Default Port is 65333. This port hopefully is closed on target systems,
         so they return 'ICMP: Port unreachable' """
 
-    def __init__(self, netw_part, hostparts_tuple_list, closed_port=65333):
+    def __init__(self, netw_part, hostparts_tuple_gen, closed_port=65333):
         threading.Thread.__init__(self, name='udp-sender')
         self.closed_port = closed_port
         self.netw_part = netw_part
-        self.hostparts_tuple_list = hostparts_tuple_list
+        self.hostparts_tuple_gen = hostparts_tuple_gen
         self.network_address = self.calc_netw_address(self.netw_part)
         self.waitlock = threading.Lock()
         self.start_event = threading.Event()
@@ -131,7 +130,7 @@ class udpSenderThread(threading.Thread):
             self.start_event.wait()
 
             print('Sending packets to {}'.format(self.network_address))
-            for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_list):
+            for bin_addr in self.yield_next_addr_bin(self.netw_part, self.hostparts_tuple_gen):
                 if self.stopped():
                     break; # in case of stop msg from outsde: stop sending
                 dd_addr = self.bin_to_dotted_decimal(bin_addr)
@@ -152,11 +151,11 @@ class udpSenderThread(threading.Thread):
                 pass
         #print('Sender thread finished')
 
-    def yield_next_addr_bin(self, netw_part, hostparts_tuple_list):
+    def yield_next_addr_bin(self, netw_part, hostparts_tuple_gen):
         # subnet adress generator function
-        for item in hostparts_tuple_list:
+        for item in hostparts_tuple_gen:
             yield netw_part+''.join([str(digit) for digit in item])
-        if len(netw_part)==32:
+        if len(netw_part)==32: # to make single target scans possible
             yield netw_part
 
     def bin_to_dotted_decimal(self, bin_addr):

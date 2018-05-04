@@ -25,14 +25,14 @@ args = parser.parse_args()
 def main(address, dd_netmask=None):
     # separates address to network part and all possible hostparts in subnet
     if not dd_netmask: # cidr-notation
-        netw_part, subnet, hostparts_tuple_list = calc_addr_range(address)
+        netw_part, subnet, hostparts_tuple_gen = calc_addr_range(address)
     else: # non-cidr-notation
-        netw_part, subnet, hostparts_tuple_list = calc_addr_range(address, dd_netmask)
+        netw_part, subnet, hostparts_tuple_gen = calc_addr_range(address, dd_netmask)
 
-    # remove network and broadcast addresses
-    # /31 produces an empty list, sice there are no host-addresses
-    # /32 produces a list containing only the input address for single IP checks
-    hostparts_tuple_list = hostparts_tuple_list[1:-1]
+    # remove first address (network address)
+    hostparts_tuple_gen.__next__()
+    # note: if /32, this produces ()
+    # single target schans still possible (see: udpSenderThread.yield_next_addr_bin())
 
     try:
         # create listener thread
@@ -40,7 +40,7 @@ def main(address, dd_netmask=None):
         listener_thread.start()
 
         # create sender thread
-        sender_thread = udpSenderThread(netw_part, hostparts_tuple_list)
+        sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen)
         sender_thread.start()
 
         # start sending as soon as listener thread is ready
@@ -92,9 +92,10 @@ def calc_addr_range(address, netmask=None):
         subnet = bin_netm.count('1')
 
     bin_netw_part = bin_addr[:subnet]
-
+    broadcast_tup = (1)*subnet # for not incuding the broadcast address in the generator
+    
     # create list of all possible hostparts (stored as tuples, i.e. (0,0,0,1)
-    return (bin_netw_part, subnet, [tup for tup in product(range(2), repeat=32-subnet)]) #TODO maybe generator instead of lst
+    return (bin_netw_part, subnet, (tup for tup in product(range(2), repeat=32-subnet) if tup!=broadcast_tup))
 
 def is_valid_cidr(address):
     try:
