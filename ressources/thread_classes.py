@@ -149,7 +149,8 @@ class udpSenderThread(threading.Thread):
                 sender.close()
             except:
                 pass
-        #print('Sender thread finished')
+
+        # print('All packets sent. Waiting for late responses')
 
     def yield_next_addr_bin(self, netw_part, hostparts_tuple_gen):
         # subnet adress generator function

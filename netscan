@@ -18,6 +18,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('ip_address', help='IPv4 Address in CIDR-notation')
 parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation \
                     (only needed if ip_address not in CIDR)')
+parser.add_argument('-w', '--wait', help='define time (seconds) to wait for responses \
+                     after all packets are sent. Default 2', type=int)
 
 args = parser.parse_args()
 
@@ -49,7 +51,13 @@ def main(address, dd_netmask=None):
         sender_thread.start_event.set()
 
         sender_thread.join(timeout=5) # wait for sender thread to complete
-        time.sleep(2) # wait for late responses
+
+        # wait for late responses
+        if args.wait:
+            time.sleep(args.wait)
+        else:
+            time.sleep(2)
+
         listener_thread.stop()
         listener_thread.join(timeout=5) # wait for listener to finish
 
@@ -93,7 +101,7 @@ def calc_addr_range(address, netmask=None):
 
     bin_netw_part = bin_addr[:subnet]
     broadcast_tup = (1)*subnet # for not incuding the broadcast address in the generator
-    
+
     # create list of all possible hostparts (stored as tuples, i.e. (0,0,0,1)
     return (bin_netw_part, subnet, (tup for tup in product(range(2), repeat=32-subnet) if tup!=broadcast_tup))
 
