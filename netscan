@@ -94,7 +94,7 @@ def calc_addr_range(address, netmask=None):
     bin_netw_part = bin_addr[:subnet]
 
     # create list of all possible hostparts (stored as tuples, i.e. (0,0,0,1)
-    return (bin_netw_part, subnet, [tup for tup in product(range(2), repeat=32-subnet)])
+    return (bin_netw_part, subnet, [tup for tup in product(range(2), repeat=32-subnet)]) #TODO maybe generator instead of lst
 
 def is_valid_cidr(address):
     try:
@@ -145,7 +145,7 @@ if args.ip_address:
     run = True
     try:
         # if this fails, dont run main
-        test_socket = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+        test_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
     except PermissionError:
         run = False
         print('root needed')
