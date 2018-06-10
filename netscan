@@ -16,9 +16,9 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('ip_address', help='IPv4 Address in CIDR-notation')
 parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation \
-                    (only needed if ip_address not in CIDR)')
+                    (only needed if ip_address not in CIDR)', metavar='NM')
 parser.add_argument('-w', '--wait', help='define time (seconds) to wait for responses \
-                     after all packets are sent. Default 2', type=int)
+                     after all packets are sent. Default 2', type=int, metavar='SEC')
 parser.add_argument('-p', '--port', help='define a closed UDP port to use. Default 65333',
                     type=int)
 
@@ -26,7 +26,7 @@ args = parser.parse_args()
 
 
 def main(address, dd_netmask=None):
-    # separates address to network part and all possible hostparts in subnet
+    # separate address to network part and all possible hostparts in subnet
     if not dd_netmask: # cidr-notation
         netw_part, subnet, hostparts_tuple_gen = calc_addr_range(address)
     else: # non-cidr-notation
