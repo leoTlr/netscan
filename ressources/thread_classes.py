@@ -142,6 +142,7 @@ class udpSenderThread(threading.Thread):
                     #print('++ pkg sent to {}, {}'.format(dd_addr, 66533))
                 except:
                     #print('sendig failed')
+                    #print(format_exc())
                     pass
         except KeyboardInterrupt:
             print('sender thread interrupted by user')

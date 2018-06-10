@@ -43,7 +43,10 @@ def main(address, dd_netmask=None):
         listener_thread.start()
 
         # create sender thread
-        sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen, args.port)
+        if args.port:
+            sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen, args.port)
+        else:
+            sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen)
         sender_thread.start()
 
         # start sending as soon as listener thread is ready
