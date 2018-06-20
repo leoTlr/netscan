@@ -3,7 +3,6 @@
 import argparse
 import threading
 import socket # test for root
-from itertools import product # calc_addr_range()
 from re import fullmatch # address validation
 import time # wait for late responses
 
@@ -26,16 +25,15 @@ args = parser.parse_args()
 
 
 def main(address, dd_netmask=None):
-    # separate address to network part and all possible hostparts in subnet
+    # calculate first and last address of given IPv4-network
     if not dd_netmask: # cidr-notation
-        netw_part, subnet, hostparts_tuple_gen = calc_addr_range(address)
+        network_addr, broadcast_addr, subnet = calc_addr_range(address)
     else: # non-cidr-notation
-        netw_part, subnet, hostparts_tuple_gen = calc_addr_range(address, dd_netmask)
+        network_addr, broadcast_addr, subnet = calc_addr_range(address, dd_netmask)
 
-    # remove first address (network address)
-    hostparts_tuple_gen.__next__()
-    # note: if /32, this produces ()
-    # single target schans still possible (see: udpSenderThread.yield_next_addr_bin())
+    print('.'.join(map(str, network_addr.to_bytes(4, 'big'))))
+    print('.'.join(map(str, broadcast_addr.to_bytes(4, 'big'))))
+
 
     try:
         # create listener thread
@@ -44,9 +42,9 @@ def main(address, dd_netmask=None):
 
         # create sender thread
         if args.port:
-            sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen, args.port)
+            sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port)
         else:
-            sender_thread = udpSenderThread(netw_part, hostparts_tuple_gen)
+            sender_thread = udpSenderThread(network_addr, broadcast_addr)
         sender_thread.start()
 
         # start sending as soon as listener thread is ready
@@ -75,38 +73,52 @@ def main(address, dd_netmask=None):
         except:
             pass
 
-        netw_addr = netw_part+'0'*(32-len(netw_part))
+        netw_addr_str = sender_thread.bin_to_dotted_decimal(network_addr)
         print('Scan completed. {} hosts up in {}/{}'.format(
-        listener_thread.hostup_counter,
-        sender_thread.bin_to_dotted_decimal(netw_addr),
-        subnet ))
+                listener_thread.hostup_counter, netw_addr_str, subnet))
 
-def calc_addr_range(address, netmask=None):
-    # takes either cidr-type address OR dotted decimal address + dotted decimal netmask
-    # Important: validation needs to be done before
+def calc_addr_range(address, dd_netmask=None):
+    # calculate network address and broadcast Address
+    # out of given ip address string
+    # input either CIDR-type address or dotted decimal and separate netmask
 
-    # create string of binary address
-    if not netmask:
+    # separate decimal str blocks into 4 ints
+    if not dd_netmask:
+        # if CIDR-type, also get subnet (i.e '24' for '.../24')
         dd_addr, subnet_str = address.split('/')
         addr_blocks = [int(block) for block in dd_addr.split('.')]
     else:
         addr_blocks = [int(block) for block in address.split('.')]
 
-    bin_addr = '{0:08b}{1:08b}{2:08b}{3:08b}'.format(*addr_blocks)
+    # concatenate decimal blocks to address
+    bin_addr = 0b0
+    addr_blocks = zip((24, 16, 8, 0), addr_blocks)
+    for lshift_val, block in addr_blocks:
+        bin_addr += (block << lshift_val)
 
-    if not netmask:
-        subnet = int(subnet_str) # just take subnet nr after /
+    if not dd_netmask:
+        subnet = int(subnet_str)
+
+        # eqal to ('1'*subnet)+('0'*(32-subnet)) as int
+        # i.e 0b11111111111111111111111100000000 for /24
+        bin_netm = (2**(32-(32-subnet))-1) << (32-subnet)
+
     else:
-        # create string of binary netmask and cout ones
-        netm_blocks = [int(block) for block in netmask.split('.')]
-        bin_netm = '{0:08b}{1:08b}{2:08b}{3:08b}'.format(*netm_blocks)
-        subnet = bin_netm.count('1')
+        netm_blocks = [int(block) for block in dd_netmask.split('.')]
 
-    bin_netw_part = bin_addr[:subnet]
-    broadcast_tup = (1)*subnet # for not incuding the broadcast address in the generator
+        # concatenate decimal blocks to address
+        bin_netm = 0b0
+        netm_blocks = zip((24, 16, 8, 0), netm_blocks)
+        for lshift_val, block in netm_blocks:
+            bin_netm += (block << lshift_val)
 
-    # create list of all possible hostparts (stored as tuples, i.e. (0,0,0,1)
-    return (bin_netw_part, subnet, (tup for tup in product(range(2), repeat=32-subnet) if tup!=broadcast_tup))
+        # i.e for /24: subnet=24
+        subnet = 32-((((2**32)-1)-bin_netm).bit_length())
+
+    network_addr = bin_addr&bin_netm
+    broadcast_addr = network_addr+(2**(32-subnet)-1)
+
+    return (network_addr, broadcast_addr, subnet)
 
 def is_valid_cidr(address):
     try:
