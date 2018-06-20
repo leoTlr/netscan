@@ -10,16 +10,22 @@ from ressources.thread_classes import listenerThread, udpSenderThread
 
 from traceback import format_exc # debug
 
+desc = """
+Host discovery tool.
+Will list and count all responding devices in given network by sending an \
+UDP-packet to each address and waiting for ICMP: Port unreachable responses. """
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description=desc)
 
-parser.add_argument('ip_address', help='IPv4 Address in CIDR-notation')
+parser.add_argument('ip_address', metavar='IPv4-address', help='IPv4 Address in CIDR-notation')
 parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation \
-                    (only needed if ip_address not in CIDR)', metavar='NM')
+                    (only needed if ip_address not in CIDR-notation)', metavar='NM')
 parser.add_argument('-w', '--wait', help='define time (seconds) to wait for responses \
                      after all packets are sent. Default 2', type=int, metavar='SEC')
 parser.add_argument('-p', '--port', help='define a closed UDP port to use. Default 65333',
                     type=int)
+parser.add_argument('-s', '--silent', action='store_true',
+                    help='only output number of discovered hosts')
 
 args = parser.parse_args()
 
@@ -31,20 +37,26 @@ def main(address, dd_netmask=None):
     else: # non-cidr-notation
         network_addr, broadcast_addr, subnet = calc_addr_range(address, dd_netmask)
 
-    print('.'.join(map(str, network_addr.to_bytes(4, 'big'))))
-    print('.'.join(map(str, broadcast_addr.to_bytes(4, 'big'))))
-
-
     try:
         # create listener thread
-        listener_thread = listenerThread()
+        if args.silent:
+            listener_thread = listenerThread(silent=True)
+        else:
+            listener_thread = listenerThread()
         listener_thread.start()
 
         # create sender thread
         if args.port:
-            sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port)
+            if args.silent:
+                sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port, silent=True)
+            else:
+                sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port)
         else:
-            sender_thread = udpSenderThread(network_addr, broadcast_addr)
+            if args.silent:
+                sender_thread = udpSenderThread(network_addr, broadcast_addr, silent=True)
+            else:
+                sender_thread = udpSenderThread(network_addr, broadcast_addr)
+                
         sender_thread.start()
 
         # start sending as soon as listener thread is ready
@@ -73,9 +85,12 @@ def main(address, dd_netmask=None):
         except:
             pass
 
-        netw_addr_str = sender_thread.bin_to_dotted_decimal(network_addr)
-        print('Scan completed. {} hosts up in {}/{}'.format(
-                listener_thread.hostup_counter, netw_addr_str, subnet))
+        if args.silent:
+            print('{}'.format(listener_thread.hostup_counter))
+        else:
+            netw_addr_str = sender_thread.bin_to_dotted_decimal(network_addr)
+            print('Scan completed. {} hosts up in {}/{}'.format(
+                    listener_thread.hostup_counter, netw_addr_str, subnet))
 
 def calc_addr_range(address, dd_netmask=None):
     # calculate network address and broadcast Address
