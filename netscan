@@ -37,60 +37,73 @@ def main(address, dd_netmask=None):
     else: # non-cidr-notation
         network_addr, broadcast_addr, subnet = calc_addr_range(address, dd_netmask)
 
-    try:
-        # create listener thread
+    scan_ok = True # gets false if sth goes wrong
+
+    # create listener thread
+    if args.silent:
+        listener_thread = listenerThread(silent=True)
+    else:
+        listener_thread = listenerThread()
+    listener_thread.start()
+
+    # create sender thread
+    if args.port:
         if args.silent:
-            listener_thread = listenerThread(silent=True)
+            sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port, silent=True)
         else:
-            listener_thread = listenerThread()
-        listener_thread.start()
-
-        # create sender thread
-        if args.port:
-            if args.silent:
-                sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port, silent=True)
-            else:
-                sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port)
+            sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port)
+    else:
+        if args.silent:
+            sender_thread = udpSenderThread(network_addr, broadcast_addr, silent=True)
         else:
-            if args.silent:
-                sender_thread = udpSenderThread(network_addr, broadcast_addr, silent=True)
-            else:
-                sender_thread = udpSenderThread(network_addr, broadcast_addr)
+            sender_thread = udpSenderThread(network_addr, broadcast_addr)
 
-        sender_thread.start()
+    sender_thread.start()
 
-        # start sending as soon as listener thread is ready
-        while not listener_thread.is_listening:
+    # start sending as soon as listener thread is ready
+    while not listener_thread.is_listening:
+        if listener_thread.stopped():
+            scan_ok = False
+            break
+        else:
             time.sleep(0.005)
-        sender_thread.start_event.set()
+    sender_thread.start_event.set()
 
-        sender_thread.join(timeout=5) # wait for sender thread to complete
+    if sender_thread.stopped():
+        scan_ok = False
 
-        # wait for late responses
-        if args.wait:
-            time.sleep(args.wait)
-        else:
-            time.sleep(2)
+    sender_thread.join(timeout=5) # wait for sender thread to complete
 
+    # wait for late responses
+    if args.wait:
+        time.sleep(args.wait)
+    else:
+        time.sleep(2)
+
+    listener_thread.stop()
+    listener_thread.join(timeout=5) # wait for listener to finish
+
+    try:
         listener_thread.stop()
-        listener_thread.join(timeout=5) # wait for listener to finish
+        sender_thread.stop()
+    except:
+        print('[WARNING] could not stop listener and/or sender thread')
 
-    except KeyboardInterrupt:
-        print('\nInterrupted by user')
-
-    finally:
-        try:
-            listener_thread.stop()
-            sender_thread.stop()
-        except:
-            pass
-
-        if args.silent:
+    if args.silent:
+        if scan_ok:
             print('{}'.format(listener_thread.hostup_counter))
+            return listener_thread.hostup_counter
         else:
+            return -1
+    else:
+        if scan_ok:
             netw_addr_str = sender_thread.bin_to_dotted_decimal(network_addr)
             print('Scan completed. {} hosts up in {}/{}'.format(
                     listener_thread.hostup_counter, netw_addr_str, subnet))
+            return listener_thread.hostup_counter
+        else:
+            print('Scan failed')
+            return -1
 
 def calc_addr_range(address, dd_netmask=None):
     # calculate network address and broadcast Address
@@ -183,7 +196,7 @@ def is_valid_dd_netmask(address, netmask):
 if args.ip_address:
     run = True
     if args.port and not 1 <= args.port <= 65535:
-        print('invalid port')
+        print('[ERROR] invalid port. exiting')
         run = False
     try:
         # if this fails, dont run main
@@ -193,7 +206,7 @@ if args.ip_address:
         print('root needed')
     except:
         run = False
-        print('Cannot create socket.')
+        print('[ERROR] could not create socket. exiting')
     finally:
         try:
             test_socket.close()
@@ -205,6 +218,6 @@ if args.ip_address:
         elif is_valid_dd_netmask(args.ip_address, args.netmask):
             main(args.ip_address, args.netmask)
         else:
-            print('input address not valid')
+            print('[ERROR] input address and/or netmask not valid. exiting')
 else:
     print('No address given.')
