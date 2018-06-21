@@ -56,7 +56,7 @@ def main(address, dd_netmask=None):
                 sender_thread = udpSenderThread(network_addr, broadcast_addr, silent=True)
             else:
                 sender_thread = udpSenderThread(network_addr, broadcast_addr)
-                
+
         sender_thread.start()
 
         # start sending as soon as listener thread is ready
