@@ -40,23 +40,18 @@ def main(address, dd_netmask=None):
     scan_ok = True # gets false if sth goes wrong
 
     # create listener thread
+    listener_thread = listenerThread()
     if args.silent:
-        listener_thread = listenerThread(silent=True)
-    else:
-        listener_thread = listenerThread()
+        listener_thread.silent = True
+
     listener_thread.start()
 
     # create sender thread
+    sender_thread = udpSenderThread(network_addr, broadcast_addr)
     if args.port:
-        if args.silent:
-            sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port, silent=True)
-        else:
-            sender_thread = udpSenderThread(network_addr, broadcast_addr, args.port)
-    else:
-        if args.silent:
-            sender_thread = udpSenderThread(network_addr, broadcast_addr, silent=True)
-        else:
-            sender_thread = udpSenderThread(network_addr, broadcast_addr)
+        sender_thread.closed_port = args.port
+    if args.silent:
+        sender_thread.silent = True
 
     sender_thread.start()
 
@@ -87,7 +82,8 @@ def main(address, dd_netmask=None):
         listener_thread.stop()
         sender_thread.stop()
     except:
-        print('[WARNING] could not stop listener and/or sender thread')
+        if not args.silent:
+            print('[WARNING] could not stop listener and/or sender thread')
 
     if args.silent:
         if scan_ok:
@@ -97,7 +93,7 @@ def main(address, dd_netmask=None):
             return -1
     else:
         if scan_ok:
-            netw_addr_str = sender_thread.bin_to_dotted_decimal(network_addr)
+            netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
             print('Scan completed. {} hosts up in {}/{}'.format(
                     listener_thread.hostup_counter, netw_addr_str, subnet))
             return listener_thread.hostup_counter

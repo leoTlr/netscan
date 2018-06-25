@@ -15,6 +15,7 @@ class listenerThread(threading.Thread):
         threading.Thread.__init__(self, name='listener')
         self.stop_event = threading.Event()
         self.is_listening = False
+        self.is_privileged = False
         self.silent = silent
         self.hostup_counter = 0
         self.hostup_set = set() # stores already captured ip's
@@ -27,16 +28,31 @@ class listenerThread(threading.Thread):
     def stopped(self):
         return self.stop_event.is_set()
 
-    def run(self):
-
+    def _initSocket(self):
         try:
-            # family=AF_PPACKET and proto=socket.ntohs(0x0003)
-            # outputs complete ethernet frames
-            listener_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+            # outputs complete ethernet frames, needs root
+            sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+            self.is_privileged = True
+            return sock
+        except PermissionError:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            print('[WARNING] no permissions for raw socket -> no MAC-adresses')
+            return sock
         except:
+            print(format_exc())
             if not self.silent:
                 print('[ERROR] could not create socket for listener. listener stopped')
             self.stop()
+
+    def run(self):
+        # use 'with'-cotext to ensure closing the socket
+        with self._initSocket() as listener:
+            if self.is_privileged:
+                self._runPrivileged(listener)
+            else:
+                self._runNonPrivileged(listener)
+
+    def _runPrivileged(self, listener):
 
         if not self.silent and not self.stopped():
             print('Listening for incoming packets...')
@@ -44,30 +60,25 @@ class listenerThread(threading.Thread):
         while not self.stopped():
 
             # read a packet
-            raw_packet = listener_socket.recvfrom(65565)[0]
-            eth_len = 18 # without VLAN-tag 14, with 18. Only 14 needed to determine
+            raw_packet = listener.recvfrom(65565)[0]
+            eth_len = 14 # 18 byte if VLAN-Tag set, but need only 14 to determine
 
             # TODO: some MAC adresses seem to be wrong (not all)
             #       -> only own mac seems to be incorrect (it is 0)
-            #       -> sould not be in putput anyway
+            #       -> sould not be in output anyway (done)
 
-            # TODO: add support of VLAN-tagged frames
             eth_header = Ether(raw_packet[:eth_len])
-            #if eth_header.has_vlan_tag:
-            #    print('VLAN FRAME: ', unpack('!6s6s4s4sH', raw_packet[:18]))
-            #    eth_len = 18
 
-            #tst_eth = unpack('!6s6sH', raw_packet[:14])
-            #field_id = socket.ntohs(tst_eth[2])
-            #print('type_id: ', field_id, eth_header.type_id, eth_header.protocol)
-
-            eth_len = eth_header.length # if normal eth frame -> 14 else 18
+            if eth_header.has_vlan_tag:
+                # need to increase offset to start of IP-header then
+                eth_len = 18
 
             # 8 = IP
             if eth_header.type_id == 8:
                 ip_header = IP(raw_packet[eth_len:eth_len+20])
 
                 if ip_header.protocol == 'ICMP':
+                    # ihl specifies offsed in 32-bit words -> ihl*4(bytes)=offset
                     offset = ip_header.ihl*4
                     buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
 
@@ -96,11 +107,26 @@ class listenerThread(threading.Thread):
 
             self.is_listening = True
 
-        try:
-            listener_socket.close()
-        except:
-            if not self.silent:
-                print('[WARNING] listener socket could not be closed')
+    def _runNonPrivileged(self, listener):
+        if not self.silent and not self.stopped():
+            print('Listening for incoming packets (unprivileged)...')
+
+        listener.setblocking(False)
+        h_set = set()
+
+        while not self.stopped():
+            try:
+                raw_header = listener.recvfrom(512)[0]
+                ip_header = IP(raw_header)
+                h_set.add(ip_header)
+            except socket.error:
+                pass
+            except:
+                print(format_exc())
+            self.is_listening = True
+
+        self.printHeaderFields(h_set)
+
 
     def printHeaderFields(self, headers): # for debug
         cntr = 1
@@ -145,41 +171,40 @@ class udpSenderThread(threading.Thread):
     def stopped(self):
         return self.stop_event.is_set()
 
-    def run(self):
+    def _initSocket(self):
         try:
-            sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            return sock
         except:
             if not self.silent:
                 print('[ERROR] could not create socket for sender. sender stopped')
             self.stop()
+            exit(-1)
 
-        # gettring released outside
-        self.start_event.wait()
+    def run(self):
+        with self._initSocket() as sender:
+            # gettring released outside
+            self.start_event.wait()
 
-        if not self.silent and not self.stopped():
-            addr_str = self.bin_to_dotted_decimal(self.network_addr)
-            subnet = 32-(self.broadcast_addr-self.network_addr).bit_length()
-            print('Sending packets to {}/{}'.format(addr_str, subnet))
+            if not self.silent and not self.stopped():
+                addr_str = self.bin2DottedDecimal(self.network_addr)
+                subnet = 32-(self.broadcast_addr-self.network_addr).bit_length()
+                print('Sending packets to {}/{}'.format(addr_str, subnet))
 
-        for bin_addr in self.address_generator(self.network_addr, self.broadcast_addr):
-            if self.stopped():
-                # in case of stop msg from outsde: stop sending
-                break;
-            dd_addr = self.bin_to_dotted_decimal(bin_addr)
-            try:
-                sender.sendto(bytes(8), (dd_addr, self.closed_port))
-            except:
-                if not self.silent:
-                    print('[WARNING] sendig of packet to {} failed.'.format(dd_addr))
-        try:
-            sender.close()
-        except:
-            if not self.silent:
-                print('[WARNING] sender socket could not be closed')
+            for bin_addr in self.addressGenerator(self.network_addr, self.broadcast_addr):
+                if self.stopped():
+                    # in case of stop msg from outsde: stop sending
+                    break;
+                dd_addr = self.bin2DottedDecimal(bin_addr)
+                try:
+                    sender.sendto(bytes(8), (dd_addr, self.closed_port))
+                except:
+                    if not self.silent:
+                        print('[WARNING] sendig of packet to {} failed.'.format(dd_addr))
 
-    def address_generator(self, network_addr, broadcast_addr):
-        # subnet adress generator function
-
+    def addressGenerator(self, network_addr, broadcast_addr):
+        # yields every host-address in subnet
+        # if /32, yield this address
         if network_addr == broadcast_addr:
             yield network_addr # for /32 check this addr
         elif network_addr+1 == broadcast_addr:
@@ -193,5 +218,5 @@ class udpSenderThread(threading.Thread):
                 yield addr
                 addr += 1
 
-    def bin_to_dotted_decimal(self, bin_addr):
+    def bin2DottedDecimal(self, bin_addr):
         return '.'.join(map(str, bin_addr.to_bytes(4, 'big')))

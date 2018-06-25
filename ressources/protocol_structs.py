@@ -17,6 +17,10 @@ class Ether(Structure):
         self.dst_addr = socket_buffer[:6] # grab the bytes objects directly
         self.src_addr = socket_buffer[6:12] # before they get put into int
 
+        # checking VLAN tag is not unneccesary for this use-case
+        # need to know if there are 32 bit longer packets to adapt
+        # offset to start op IP header
+
         # concatenate bytes to type_id
         id = 0b0
         id += (socket_buffer[12]<<8)
@@ -24,8 +28,8 @@ class Ether(Structure):
 
         # check for vlan tag
         if id == 0x8100:
-            print('VLAN-tag found')
-            return EtherVlan(socket_buffer)
+            self.has_vlan_tag = True
+        #    return EtherVlan(socket_buffer)
 
         return self.from_buffer_copy(socket_buffer)
 
@@ -48,6 +52,7 @@ class Ether(Structure):
         return '{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}'.format(*address_bytelst)
 
 class EtherVlan(Structure):
+    # unneccesary for this use-case, only addresses are needed, not the additional vlan info
     _fields_ = [
         ('dst', c_uint16*3),
         ('src', c_uint16*3),
