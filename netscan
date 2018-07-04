@@ -5,6 +5,7 @@ import threading
 import socket # test for root
 from re import fullmatch # address validation
 import time # wait for late responses
+from datetime import datetime # timestamp for xml output
 import xml.etree.ElementTree as ET # xml writing/parsing
 
 from ressources.thread_classes import listenerThread, udpSenderThread
@@ -27,8 +28,8 @@ parser.add_argument('-p', '--port', help='define a closed UDP port to use. Defau
                     type=int)
 parser.add_argument('-q', '--quiet', action='store_true',
                     help='only output number of discovered hosts')
-parser.add_argument('-s', '--save', metavar='PATH', help='save discovered hosts in file. \
-                    default=./discovered_hosts.xml')
+parser.add_argument('-s', '--save', action='store_true', help='save discovered hosts\
+                        as .xml file in ./saved_scans')
 parser.add_argument('-c', '--compare', metavar='PATH', help='compare with saved hosts in file')
 # TODO: -s and -c in mutually exclusive grp
 #       input validation for -s and -c
@@ -48,6 +49,8 @@ def main(address, dd_netmask=None):
     listener_thread = listenerThread()
     if args.quiet:
         listener_thread.quiet = True
+    if args.save:
+        listener_thread.prepare_xml_data = True
 
     listener_thread.start()
 
@@ -83,7 +86,13 @@ def main(address, dd_netmask=None):
     listener_thread.stop()
     listener_thread.join(timeout=5) # wait for listener to finish
 
-    try:
+    netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
+    cidr_nw_str = '{}/{}'.format(netw_addr_str, subnet)
+
+    if args.save:
+        save_xml(listener_thread.xml_set, cidr_nw_str)
+
+    try: # TODO remove double check for listener
         listener_thread.stop()
         sender_thread.stop()
     except:
@@ -98,13 +107,81 @@ def main(address, dd_netmask=None):
             return -1
     else:
         if scan_ok:
-            netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
-            print('Scan completed. {} hosts up in {}/{}'.format(
-                    listener_thread.hostup_counter, netw_addr_str, subnet))
+            if not args.quiet:
+                print('Scan completed. {} hosts up in {}'.format(
+                        listener_thread.hostup_counter, cidr_nw_str))
+                if args.compare:
+                    compare_xml(listener_thread.xml_set, cidr_nw_str, args.compare)
             return listener_thread.hostup_counter
         else:
-            print('Scan failed')
+            if not args.quiet:
+                print('Scan failed')
             return -1
+
+def save_xml(data_set, network):
+    # TODO:  - with import pathlib, check if folder exists, else create
+    #        - allow custom paths
+    #        - save as normal user, not root
+
+    timestamp = '{:%Y-%m-%d-%H:%M:%S}'.format(datetime.now())
+    attributes = {}
+    attributes['network'] = network
+    attributes['timestamp'] = timestamp
+
+    scan = ET.Element('scan', attrib=attributes)
+
+    for ip_str, mac_str in data_set:
+        host = ET.SubElement(scan, 'host')
+        ET.SubElement(host, 'ip').text = ip_str
+        ET.SubElement(host, 'mac').text = mac_str
+
+    tree = ET.ElementTree(scan)
+
+    filename = './saved_scans/scan_{}.xml'.format(timestamp)
+
+    with open(filename, 'wb') as xml_file:
+        tree.write(xml_file)
+
+    if not args.quiet:
+        print('saved hosts to "{}"'.format(filename))
+
+def compare_xml(data_set, network, path):
+    # compare discovered hosts with a .xml save of previous search
+
+    # TODO: - path checking
+    #       - file syntax checking
+    #       - what to do if --quiet?
+
+    saved_set = set()
+    changes_less = 0
+    changes_more = 0
+
+    with open(path, 'r') as xml_file:
+        tree = ET.parse(xml_file)
+        scan = tree.getroot()
+
+        print('Comparison with saved scan:')
+        if network != scan.get('network'):
+            if not args.quiet:
+                print('[WARNING] comparing scans from different networks')
+
+        print('Hosts no longer online:')
+        for host in scan:
+            for ip, mac in ((a,b) for a in host.iter('ip') for b in host.iter('mac')):
+                h_tup = (ip.text, mac.text)
+                if h_tup not in data_set:
+                    print('[-]   {:<16}  {}'.format(h_tup[0], h_tup[1]))
+                    changes_less += 1
+                saved_set.add(h_tup)
+        print('changes: {}'.format(changes_less))
+
+        print('Additional hosts online:')
+        for ip, mac in data_set:
+            if (ip, mac) not in saved_set:
+                print('[+]   {:<16}  {}'.format(ip, mac))
+                changes_more += 1
+        print('changes: {}'.format(changes_more))
+        print('all changes: {}'.format(changes_less+changes_more))
 
 def calc_addr_range(address, dd_netmask=None):
     # calculate network address and broadcast Address
