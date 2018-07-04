@@ -7,6 +7,7 @@ from re import fullmatch # address validation
 import time # wait for late responses
 from datetime import datetime # timestamp for xml output
 import xml.etree.ElementTree as ET # xml writing/parsing
+from sys import exit
 
 from ressources.thread_classes import listenerThread, udpSenderThread
 
@@ -14,8 +15,10 @@ from traceback import format_exc # debug
 
 desc = """
 Host discovery tool.
-Will list and count all responding devices in given network by sending an \
-UDP-packet to each address and waiting for ICMP: Port unreachable responses. """
+Will list and count all responding devices in given network by sending an
+UDP-packet to a closed port at each address in network and waiting for
+ICMP: Port unreachable responses.
+"""
 
 parser = argparse.ArgumentParser(description=desc)
 
@@ -27,12 +30,15 @@ parser.add_argument('-w', '--wait', help='define time (seconds) to wait for resp
 parser.add_argument('-p', '--port', help='define a closed UDP port to use. Default 65333',
                     type=int)
 parser.add_argument('-q', '--quiet', action='store_true',
-                    help='only output number of discovered hosts')
-parser.add_argument('-s', '--save', action='store_true', help='save discovered hosts\
+                    help='only output number of discovered hosts (or number of changes since\
+                     save if -c is selected)')
+parser.add_argument('-s', '--save', action='store_true', help='save discovered hosts \
                         as .xml file in ./saved_scans')
-parser.add_argument('-c', '--compare', metavar='PATH', help='compare with saved hosts in file')
+parser.add_argument('-c', '--compare', metavar='PATH', help='scan and compare with \
+                    saved hosts in file. If this is selected with -q, the number of\
+                     changes is returned')
 # TODO: -s and -c in mutually exclusive grp
-#       input validation for -s and -c
+#       input validation for -c
 args = parser.parse_args()
 
 
@@ -49,7 +55,7 @@ def main(address, dd_netmask=None):
     listener_thread = listenerThread()
     if args.quiet:
         listener_thread.quiet = True
-    if args.save:
+    if args.save or args.compare:
         listener_thread.prepare_xml_data = True
 
     listener_thread.start()
@@ -59,7 +65,7 @@ def main(address, dd_netmask=None):
     if args.port:
         sender_thread.closed_port = args.port
     if args.quiet:
-        sender_thread.silent = True
+        sender_thread.quiet = True
 
     sender_thread.start()
 
@@ -89,34 +95,29 @@ def main(address, dd_netmask=None):
     netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
     cidr_nw_str = '{}/{}'.format(netw_addr_str, subnet)
 
+    if args.save or args.compare:
+        data_set = listener_thread.xml_set
+
     if args.save:
-        save_xml(listener_thread.xml_set, cidr_nw_str)
+        save_xml(data_set, cidr_nw_str)
 
-    try: # TODO remove double check for listener
-        listener_thread.stop()
-        sender_thread.stop()
-    except:
-        if not args.quiet:
-            print('[WARNING] could not stop listener and/or sender thread')
-
-    if args.quiet:
-        if scan_ok:
-            print('{}'.format(listener_thread.hostup_counter))
-            return listener_thread.hostup_counter
+    if scan_ok:
+        if args.compare:
+            if not args.quiet:
+                compare_xml(data_set, cidr_nw_str, args.compare)
+            else:
+                print(compare_xml(data_set, cidr_nw_str, args.compare))
+            exit(0)
         else:
-            return -1
+            if not args.quiet:
+                print('{} hosts up in {}'.format(listener_thread.hostup_counter, cidr_nw_str))
+            else:
+                print(listener_thread.hostup_counter)
+            exit(0)
     else:
-        if scan_ok:
-            if not args.quiet:
-                print('Scan completed. {} hosts up in {}'.format(
-                        listener_thread.hostup_counter, cidr_nw_str))
-                if args.compare:
-                    compare_xml(listener_thread.xml_set, cidr_nw_str, args.compare)
-            return listener_thread.hostup_counter
-        else:
-            if not args.quiet:
-                print('Scan failed')
-            return -1
+        if not args.quiet:
+            print('[ERROR] scan failed')
+        exit(-1)
 
 def save_xml(data_set, network):
     # TODO:  - with import pathlib, check if folder exists, else create
@@ -150,7 +151,6 @@ def compare_xml(data_set, network, path):
 
     # TODO: - path checking
     #       - file syntax checking
-    #       - what to do if --quiet?
 
     saved_set = set()
     changes_less = 0
@@ -160,28 +160,33 @@ def compare_xml(data_set, network, path):
         tree = ET.parse(xml_file)
         scan = tree.getroot()
 
-        print('Comparison with saved scan:')
+        if not args.quiet:
+            print('Comparison with saved scan:')
         if network != scan.get('network'):
             if not args.quiet:
                 print('[WARNING] comparing scans from different networks')
 
-        print('Hosts no longer online:')
         for host in scan:
             for ip, mac in ((a,b) for a in host.iter('ip') for b in host.iter('mac')):
                 h_tup = (ip.text, mac.text)
                 if h_tup not in data_set:
-                    print('[-]   {:<16}  {}'.format(h_tup[0], h_tup[1]))
+                    if not args.quiet:
+                        print('[-] {:<16}  {}'.format(h_tup[0], h_tup[1]))
                     changes_less += 1
                 saved_set.add(h_tup)
-        print('changes: {}'.format(changes_less))
 
-        print('Additional hosts online:')
         for ip, mac in data_set:
             if (ip, mac) not in saved_set:
-                print('[+]   {:<16}  {}'.format(ip, mac))
+                print('[+] {:<16}  {}'.format(ip, mac))
                 changes_more += 1
-        print('changes: {}'.format(changes_more))
-        print('all changes: {}'.format(changes_less+changes_more))
+
+        changes_combined = changes_less+changes_more
+        if not args.quiet:
+            print('no longer online: {}'.format(changes_less))
+            print('additional hosts: {}'.format(changes_more))
+            print('combined changes: {}'.format(changes_combined))
+
+        return changes_combined
 
 def calc_addr_range(address, dd_netmask=None):
     # calculate network address and broadcast Address
@@ -227,6 +232,7 @@ def calc_addr_range(address, dd_netmask=None):
     return (network_addr, broadcast_addr, subnet)
 
 def is_valid_cidr(address):
+    # for tye: 192.168.2.0/24
     try:
         split = address.split('/')
         if len(split)==2:
@@ -247,6 +253,7 @@ def is_valid_cidr(address):
         return False
 
 def is_valid_dd_netmask(address, netmask):
+    # for type 192.168.2.0 255.255.255.0
     try:
         addr_split = address.split('.')
         netm_split = netmask.split('.')
@@ -269,38 +276,32 @@ def is_valid_dd_netmask(address, netmask):
     except:
         return False
 
-
 if args.ip_address:
-    run = True
-    if args.port and not 1 <= args.port <= 65535:
+    if args.port and not (1 <= args.port <= 65535):
         if not args.quiet:
             print('[ERROR] invalid port. exiting')
-        run = False
-    try:
-        # if this fails, dont run main
-        test_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
+        exit(-1)
+    try: # raw socket of AF_PACKET needed for listener-thread
+        with socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003)) as s:
+            s.close()
     except PermissionError:
-        run = False
         if not args.quiet:
-            print('root needed')
+            print('[ERROR] root needed')
+        exit(-1)
     except:
-        run = False
         if not args.quiet:
             print('[ERROR] could not create socket. exiting')
-    finally:
-        try:
-            test_socket.close()
-        except:
-            pass
-    if run:
-        if is_valid_cidr(args.ip_address):
-            main(args.ip_address)
-        elif is_valid_dd_netmask(args.ip_address, args.netmask):
-            main(args.ip_address, args.netmask)
-        else:
-            if not args.quiet:
-                print('[ERROR] input address and/or netmask not valid. exiting')
+        exit(-1)
+
+    if is_valid_cidr(args.ip_address):
+        main(args.ip_address)
+    elif is_valid_dd_netmask(args.ip_address, args.netmask):
+        main(args.ip_address, args.netmask)
+    else:
+        if not args.quiet:
+            print('[ERROR] input address and/or netmask not valid. exiting')
+        exit(-1)
 else:
-    # TODO: exit with -1
     if not args.quiet:
-        print('No address given.')
+        print('[ERROR] No address given.')
+    exit(-1)
