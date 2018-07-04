@@ -5,6 +5,7 @@ import threading
 import socket # test for root
 from re import fullmatch # address validation
 import time # wait for late responses
+import xml.etree.ElementTree as ET # xml writing/parsing
 
 from ressources.thread_classes import listenerThread, udpSenderThread
 
@@ -24,9 +25,13 @@ parser.add_argument('-w', '--wait', help='define time (seconds) to wait for resp
                      after all packets are sent. Default 2', type=int, metavar='SEC')
 parser.add_argument('-p', '--port', help='define a closed UDP port to use. Default 65333',
                     type=int)
-parser.add_argument('-s', '--silent', action='store_true',
+parser.add_argument('-q', '--quiet', action='store_true',
                     help='only output number of discovered hosts')
-
+parser.add_argument('-s', '--save', metavar='PATH', help='save discovered hosts in file. \
+                    default=./discovered_hosts.xml')
+parser.add_argument('-c', '--compare', metavar='PATH', help='compare with saved hosts in file')
+# TODO: -s and -c in mutually exclusive grp
+#       input validation for -s and -c
 args = parser.parse_args()
 
 
@@ -41,8 +46,8 @@ def main(address, dd_netmask=None):
 
     # create listener thread
     listener_thread = listenerThread()
-    if args.silent:
-        listener_thread.silent = True
+    if args.quiet:
+        listener_thread.quiet = True
 
     listener_thread.start()
 
@@ -50,7 +55,7 @@ def main(address, dd_netmask=None):
     sender_thread = udpSenderThread(network_addr, broadcast_addr)
     if args.port:
         sender_thread.closed_port = args.port
-    if args.silent:
+    if args.quiet:
         sender_thread.silent = True
 
     sender_thread.start()
@@ -82,10 +87,10 @@ def main(address, dd_netmask=None):
         listener_thread.stop()
         sender_thread.stop()
     except:
-        if not args.silent:
+        if not args.quiet:
             print('[WARNING] could not stop listener and/or sender thread')
 
-    if args.silent:
+    if args.quiet:
         if scan_ok:
             print('{}'.format(listener_thread.hostup_counter))
             return listener_thread.hostup_counter
@@ -179,7 +184,6 @@ def is_valid_dd_netmask(address, netmask):
             # attention: pattern only checks for bin_netm being ones followed by zeroes
             # BUT also matches len(bin_netm) != 32
             # -> need to explicitly check len
-            print('fullmatch failed', bin_netm)
             return False
         elif not len(bin_netm)==32:
             return False
@@ -192,17 +196,20 @@ def is_valid_dd_netmask(address, netmask):
 if args.ip_address:
     run = True
     if args.port and not 1 <= args.port <= 65535:
-        print('[ERROR] invalid port. exiting')
+        if not args.quiet:
+            print('[ERROR] invalid port. exiting')
         run = False
     try:
         # if this fails, dont run main
         test_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
     except PermissionError:
         run = False
-        print('root needed')
+        if not args.quiet:
+            print('root needed')
     except:
         run = False
-        print('[ERROR] could not create socket. exiting')
+        if not args.quiet:
+            print('[ERROR] could not create socket. exiting')
     finally:
         try:
             test_socket.close()
@@ -214,6 +221,9 @@ if args.ip_address:
         elif is_valid_dd_netmask(args.ip_address, args.netmask):
             main(args.ip_address, args.netmask)
         else:
-            print('[ERROR] input address and/or netmask not valid. exiting')
+            if not args.quiet:
+                print('[ERROR] input address and/or netmask not valid. exiting')
 else:
-    print('No address given.')
+    # TODO: exit with -1
+    if not args.quiet:
+        print('No address given.')

@@ -11,15 +11,17 @@ class listenerThread(threading.Thread):
     """ Waits for packets to arrive and decodes them
         to check for 'ICMP: Port Unreachable' """
 
-    def __init__(self, silent=False):
+    def __init__(self, quiet=False):
         threading.Thread.__init__(self, name='listener')
         self.stop_event = threading.Event()
         self.is_listening = False
         self.is_privileged = False
-        self.silent = silent
+        self.prepare_xml_data = False
+        self.quiet = quiet
         self.hostup_counter = 0
         self.hostup_set = set() # stores already captured ip's
         self.header_lst = []
+        self.xml_set = set() # store human-readable ip and mac for saving in xml
         self.own_ip = None # becomes dest addr of first port unreachable reply
 
     def stop(self):
@@ -36,11 +38,12 @@ class listenerThread(threading.Thread):
             return sock
         except PermissionError:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            print('[WARNING] no permissions for raw socket -> no MAC-adresses')
+            if not self.quiet:
+                print('[WARNING] no permissions for raw socket -> no MAC-adresses')
             return sock
         except:
             print(format_exc())
-            if not self.silent:
+            if not self.quiet:
                 print('[ERROR] could not create socket for listener. listener stopped')
             self.stop()
 
@@ -54,7 +57,7 @@ class listenerThread(threading.Thread):
 
     def _runPrivileged(self, listener):
 
-        if not self.silent and not self.stopped():
+        if not self.quiet and not self.stopped():
             print('Listening for incoming packets...')
 
         while not self.stopped():
@@ -97,10 +100,12 @@ class listenerThread(threading.Thread):
                             continue
 
                         if not ip_header.src in self.hostup_set:
-                            if not self.silent:
-                                ip_str = '{}'.format(ip_header.src_addr)
-                                mac_str = '{}'.format(eth_header.src_addr)
+                            ip_str = '{}'.format(ip_header.src_addr)
+                            mac_str = '{}'.format(eth_header.src_addr)
+                            if not self.quiet:
                                 print('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                            if self.prepare_xml_data:
+                                self.xml_set.add((ip_str, mac_str))
 
                             self.hostup_set.add(ip_header.src)
                             self.hostup_counter += 1
@@ -108,7 +113,7 @@ class listenerThread(threading.Thread):
             self.is_listening = True
 
     def _runNonPrivileged(self, listener):
-        if not self.silent and not self.stopped():
+        if not self.quiet and not self.stopped():
             print('Listening for incoming packets (unprivileged)...')
 
         listener.setblocking(False)
@@ -156,14 +161,14 @@ class udpSenderThread(threading.Thread):
         Default Port is 65333. This port hopefully is closed on target systems,
         so they return 'ICMP: Port unreachable' """
 
-    def __init__(self, network_addr, broadcast_addr, closed_port=65333, silent=False):
+    def __init__(self, network_addr, broadcast_addr, closed_port=65333, quiet=False):
         threading.Thread.__init__(self, name='udp-sender')
         self.closed_port = closed_port
         self.network_addr = network_addr
         self.broadcast_addr = broadcast_addr
         self.start_event = threading.Event()
         self.stop_event = threading.Event()
-        self.silent = silent
+        self.quiet = quiet
 
     def stop(self):
         self.stop_event.set()
@@ -176,7 +181,7 @@ class udpSenderThread(threading.Thread):
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             return sock
         except:
-            if not self.silent:
+            if not self.quiet:
                 print('[ERROR] could not create socket for sender. sender stopped')
             self.stop()
             exit(-1)
@@ -186,7 +191,7 @@ class udpSenderThread(threading.Thread):
             # gettring released outside
             self.start_event.wait()
 
-            if not self.silent and not self.stopped():
+            if not self.quiet and not self.stopped():
                 addr_str = self.bin2DottedDecimal(self.network_addr)
                 subnet = 32-(self.broadcast_addr-self.network_addr).bit_length()
                 print('Sending packets to {}/{}'.format(addr_str, subnet))
@@ -199,7 +204,7 @@ class udpSenderThread(threading.Thread):
                 try:
                     sender.sendto(bytes(8), (dd_addr, self.closed_port))
                 except:
-                    if not self.silent:
+                    if not self.quiet:
                         print('[WARNING] sendig of packet to {} failed.'.format(dd_addr))
 
     def addressGenerator(self, network_addr, broadcast_addr):
@@ -208,7 +213,7 @@ class udpSenderThread(threading.Thread):
         if network_addr == broadcast_addr:
             yield network_addr # for /32 check this addr
         elif network_addr+1 == broadcast_addr:
-            if not self.silent:
+            if not self.quiet:
                 print('[Warning] no host-addresses in /31 network')
             raise StopIteration # dont yield
         else:
