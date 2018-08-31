@@ -2,12 +2,51 @@
 
 import threading
 import socket
+import os, pwd, grp # listenerThread.dropPrivileges()
 from traceback import format_exc # debug
 from .protocol_structs import IP, ICMP, Ether # udpSenderThread.run(), listenerThread.run()
 from ctypes import sizeof # udpSenderThread.run()
 
 
-class listenerThread(threading.Thread):
+class unprivThread(threading.Thread):
+    """ add dropPrivileged() mehtod to thread """
+
+    # TODO make class abstract somehow to prevent instanciation 
+
+    def __init__(self):
+        self.quiet = True
+
+    def dropPrivileges(self):
+        """ drop root-privileges if run with sudo  """
+
+        if os.getuid() != 0:
+            # not root anyway
+            return
+
+        # get name of sudo user (returns None if ran in root shell)
+        user_name = os.getenv('SUDO_USER')
+
+        # there is no $SUDO_USER run in root shell
+        if not user_name:
+            if not self.quiet: # TODO 
+                print('[WARNING] can not drop privileges to $SUDO_USER if running in root shell')
+            return
+        
+        # get uid/gid from name (only works if running with sudo, not with su root)
+        pwnam = pwd.getpwnam(user_name) # struct with user uid and gid
+
+        # remove group privileges
+        os.setgroups([])
+
+        # set new uid/gid
+        os.setgid(pwnam.pw_gid)
+        os.setuid(pwnam.pw_uid)
+
+        # set umask
+        os.umask(0o22)
+
+
+class listenerThread(unprivThread):
     """ Waits for packets to arrive and decodes them
         to check for 'ICMP: Port Unreachable' """
 
@@ -36,8 +75,8 @@ class listenerThread(threading.Thread):
             sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
             self.is_privileged = True
             return sock
-        except PermissionError:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        except PermissionError: # TODO: ICMP echo schould pe possible like this without root privileges
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
             if not self.quiet:
                 print('[WARNING] no permissions for raw socket -> no MAC-adresses')
             return sock
@@ -46,6 +85,9 @@ class listenerThread(threading.Thread):
             if not self.quiet:
                 print('[ERROR] could not create socket for listener. listener stopped')
             self.stop()
+        finally:
+            # privileges only needed for socket creation
+            self.dropPrivileges()
 
     def run(self):
         # use 'with'-cotext to ensure closing the socket
@@ -53,6 +95,7 @@ class listenerThread(threading.Thread):
             if self.is_privileged:
                 self._runPrivileged(listener)
             else:
+                # TODO
                 self._runNonPrivileged(listener)
 
     def _runPrivileged(self, listener):
@@ -63,11 +106,11 @@ class listenerThread(threading.Thread):
         while not self.stopped():
 
             # read a packet
-            raw_packet = listener.recvfrom(65565)[0]
+            raw_packet = listener.recv(65565)
             eth_len = 14 # 18 byte if VLAN-Tag set, but need only 14 to determine
 
-            # TODO: some MAC adresses seem to be wrong (not all)
-            #       -> only own mac seems to be incorrect (it is 0)
+            # some MAC adresses seem to be wrong (not all)
+            #       -> only own mac seems to be incorrect (it is 0) but why?
             #       -> sould not be in output anyway (done)
 
             eth_header = Ether(raw_packet[:eth_len])
@@ -81,7 +124,7 @@ class listenerThread(threading.Thread):
                 ip_header = IP(raw_packet[eth_len:eth_len+20])
 
                 if ip_header.protocol == 'ICMP':
-                    # ihl specifies offsed in 32-bit words -> ihl*4(bytes)=offset
+                    # ihl specifies offset in 32-bit words -> ihl*4(bytes)=offset
                     offset = ip_header.ihl*4
                     buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
 
@@ -94,6 +137,8 @@ class listenerThread(threading.Thread):
                         # note that this is not absolutely failsafe
                         # first reply can be the package sent to own IP
                         # TODO find better solution without sending additional packages
+                        #       -> socket.getaddrinfo(None, 65333) returns only localhost, not actual addr
+                        #       -> socket.gethostbyname(socket.gethostname()) returns addr, but probably sends additional packets
                         if not self.own_ip:
                             self.own_ip = ip_header.dst
                         if self.own_ip == ip_header.src:
@@ -112,7 +157,8 @@ class listenerThread(threading.Thread):
 
             self.is_listening = True
 
-    def _runNonPrivileged(self, listener):
+    def _runNonPrivileged(self, listener): # TODO
+
         if not self.quiet and not self.stopped():
             print('Listening for incoming packets (unprivileged)...')
 
@@ -121,7 +167,7 @@ class listenerThread(threading.Thread):
 
         while not self.stopped():
             try:
-                raw_header = listener.recvfrom(512)[0]
+                raw_header = listener.recv(512)
                 ip_header = IP(raw_header)
                 h_set.add(ip_header)
             except socket.error:
@@ -156,8 +202,8 @@ class listenerThread(threading.Thread):
             pass
 
 
-class udpSenderThread(threading.Thread):
-    """ Thread for sending UDP packets to every Host in subnetself.
+class udpSenderThread(unprivThread):
+    """ Thread for sending UDP packets to every Host in subnet.
         Default Port is 65333. This port hopefully is closed on target systems,
         so they return 'ICMP: Port unreachable' """
 
@@ -187,7 +233,12 @@ class udpSenderThread(threading.Thread):
             exit(-1)
 
     def run(self):
+
+        # privileges not needed for sender socket
+        self.dropPrivileges()
+
         with self._initSocket() as sender:
+            
             # gettring released outside
             self.start_event.wait()
 
@@ -208,8 +259,9 @@ class udpSenderThread(threading.Thread):
                         print('[WARNING] sendig of packet to {} failed.'.format(dd_addr))
 
     def addressGenerator(self, network_addr, broadcast_addr):
-        # yields every host-address in subnet
-        # if /32, yield this address
+        """ yields every host-address in subnet
+            if /32, yield this address """
+            
         if network_addr == broadcast_addr:
             yield network_addr # for /32 check this addr
         elif network_addr+1 == broadcast_addr:

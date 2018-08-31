@@ -3,7 +3,7 @@
 import argparse
 import threading
 import socket # test for root
-from re import fullmatch # address validation
+from re import fullmatch # regex address validation
 import time # wait for late responses
 from datetime import datetime # timestamp for xml output
 import xml.etree.ElementTree as ET # xml writing/parsing
@@ -43,6 +43,7 @@ args = parser.parse_args()
 
 
 def main(address, dd_netmask=None):
+
     # calculate first and last address of given IPv4-network
     if not dd_netmask: # cidr-notation
         network_addr, broadcast_addr, subnet = calc_addr_range(address)
@@ -124,7 +125,7 @@ def save_xml(data_set, network):
     #        - allow custom paths
     #        - save as normal user, not root
 
-    timestamp = '{:%Y-%m-%d-%H:%M:%S}'.format(datetime.now())
+    timestamp = '{:%Y-%m-%d-%H-%M-%S}'.format(datetime.now())
     attributes = {}
     attributes['network'] = network
     attributes['timestamp'] = timestamp
@@ -289,6 +290,7 @@ if args.ip_address:
             print('[ERROR] root needed')
         exit(-1)
     except:
+        print(format_exc())
         if not args.quiet:
             print('[ERROR] could not create socket. exiting')
         exit(-1)
