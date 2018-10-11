@@ -9,12 +9,18 @@ from ctypes import sizeof # udpSenderThread.run()
 
 
 class baseThread(threading.Thread):
-    """ add dropPrivileges() mehtod to thread """
+    """ bundles common methods and a shared Event """
+
+    listener_ready = threading.Event() # needs to be shared by all threads
 
     # TODO make class abstract somehow to prevent instanciation 
 
-    def __init__(self):
-        self.quiet = True
+    def __init__(self, quiet=True, name='baseThread'):
+        super().__init__(name=name)
+        self.stop_event = threading.Event()
+        self.name = name
+        self.quiet = quiet
+        self.error = False
 
     def dropPrivileges(self):
         """ drop root-privileges if run with sudo  """
@@ -45,29 +51,29 @@ class baseThread(threading.Thread):
         # set umask
         os.umask(0o22)
 
+    def stop(self, abnormal=True):
+        if abnormal:
+            self.error = True
+        self.stop_event.set()
+
+    def stopped(self):
+        return self.stop_event.is_set()
+    
+    def stoppedAbnormally(self):
+        return self.error
+
 
 class listenerThread(baseThread):
     """ Waits for packets to arrive and decodes them
         to check for 'ICMP: Port Unreachable' """
 
     def __init__(self, quiet=False):
-        threading.Thread.__init__(self, name='listener')
-        self.stop_event = threading.Event()
-        self.is_listening = False
-        self.is_privileged = False
+        super().__init__(name='listener', quiet=quiet)
         self.prepare_xml_data = False
-        self.quiet = quiet
         self.hostup_counter = 0
         self.hostup_set = set() # stores already captured ip's
-        self.header_lst = []
         self.xml_set = set() # store human-readable ip and mac for saving in xml
         self.own_ip = None # becomes dest addr of first port unreachable reply
-
-    def stop(self):
-        self.stop_event.set()
-
-    def stopped(self):
-        return self.stop_event.is_set()
 
     def _initSocket(self):
         try:
@@ -75,16 +81,16 @@ class listenerThread(baseThread):
             sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
             self.is_privileged = True
             return sock
-        except PermissionError: # TODO: ICMP echo schould pe possible like this without root privileges
+        except PermissionError:
             if not self.quiet:
                 print('[ERROR] no permissions for raw socket. listener stopped')
-            self.stop()
+            self.stop(True)
             exit(-1)
         except Exception as e:
             if not self.quiet:
                 print('[ERROR] could not create socket for listener. listener stopped')
                 print(e)
-            self.stop()
+            self.stop(True)
             exit(-1)
         finally:
             # privileges only needed for socket creation
@@ -97,6 +103,8 @@ class listenerThread(baseThread):
 
             if not self.quiet and not self.stopped():
                 print('Listening for incoming packets...')
+
+            self.listener_ready.set()
 
             while not self.stopped():
 
@@ -139,8 +147,6 @@ class listenerThread(baseThread):
                                 self.hostup_set.add(ip_header.src)
                                 self.hostup_counter += 1
 
-                self.is_listening = True
-
 
 class udpSenderThread(baseThread):
     """ Thread for sending UDP packets to every Host in subnet.
@@ -148,19 +154,10 @@ class udpSenderThread(baseThread):
         so they return 'ICMP: Port unreachable' """
 
     def __init__(self, network_addr, broadcast_addr, closed_port=65333, quiet=False):
-        threading.Thread.__init__(self, name='udp-sender')
+        super().__init__(name='udp-sender', quiet=quiet)
         self.closed_port = closed_port
         self.network_addr = network_addr
         self.broadcast_addr = broadcast_addr
-        self.start_event = threading.Event()
-        self.stop_event = threading.Event()
-        self.quiet = quiet
-
-    def stop(self):
-        self.stop_event.set()
-
-    def stopped(self):
-        return self.stop_event.is_set()
 
     def _initSocket(self):
         try:
@@ -169,8 +166,10 @@ class udpSenderThread(baseThread):
         except:
             if not self.quiet:
                 print('[ERROR] could not create socket for sender. sender stopped')
-            self.stop()
+            self.stop(True)
             exit(-1)
+        finally:
+            self.dropPrivileges()
 
     def run(self):
 
@@ -179,8 +178,8 @@ class udpSenderThread(baseThread):
 
         with self._initSocket() as sender:
             
-            # gettring released outside
-            self.start_event.wait()
+            # gettring released in listener thread
+            self.listener_ready.wait()
 
             if not self.quiet and not self.stopped():
                 addr_str = self.bin2DottedDecimal(self.network_addr)

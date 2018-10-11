@@ -67,26 +67,13 @@ def main(address, dd_netmask=None):
         sender_thread.quiet = True
 
     sender_thread.start()
-
-    # start sending as soon as listener thread is ready
-    while not listener_thread.is_listening:
-        if listener_thread.stopped():
-            scan_ok = False
-            break
-        else:
-            time.sleep(0.005)
-    sender_thread.start_event.set()
-
-    if sender_thread.stopped():
-        scan_ok = False
-
     sender_thread.join(timeout=5) # wait for sender thread to complete
 
     # wait for late responses
     if args.wait: time.sleep(args.wait)
     else: time.sleep(2)
 
-    listener_thread.stop()
+    listener_thread.stop(abnormal=False)
     listener_thread.join(timeout=5) # wait for listener to finish
 
     netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
@@ -98,7 +85,7 @@ def main(address, dd_netmask=None):
     if args.save:
         save_xml(data_set, cidr_nw_str)
 
-    if scan_ok:
+    if not listener_thread.stoppedAbnormally() or not sender_thread.stoppedAbnormally():
         if args.compare:
             if not args.quiet:
                 compare_xml(data_set, cidr_nw_str, args.compare)
