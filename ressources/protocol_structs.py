@@ -17,10 +17,6 @@ class Ether(Structure):
         self.dst_addr = socket_buffer[:6] # grab the bytes objects directly
         self.src_addr = socket_buffer[6:12] # before they get put into int
 
-        # checking VLAN tag is not unneccesary for this use-case
-        # need to know if there are 32 bit longer packets to adapt
-        # offset to start op IP header
-
         # concatenate bytes to type_id
         id = 0b0
         id += (socket_buffer[12]<<8)
@@ -28,8 +24,9 @@ class Ether(Structure):
 
         # check for vlan tag
         if id == 0x8100:
-            self.has_vlan_tag = True
-        #    return EtherVlan(socket_buffer)
+            self.length = 18 # bytes
+        else:
+            self.length = 14
 
         return self.from_buffer_copy(socket_buffer)
 
@@ -40,9 +37,6 @@ class Ether(Structure):
 
         self.protocol_map = {8:'IP'} # TODO
 
-        self.has_vlan_tag = False
-        self.length = 14 # bytes
-
         try:
             self.protocol = self.protocol_map[self.type_id]
         except:
@@ -50,37 +44,6 @@ class Ether(Structure):
 
     def _convert_addresses(self, address_bytelst):
         return '{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}'.format(*address_bytelst)
-
-class EtherVlan(Structure):
-    # unneccesary for this use-case, only addresses are needed, not the additional vlan info
-    _fields_ = [
-        ('dst', c_uint16*3),
-        ('src', c_uint16*3),
-        ('tpid', c_uint16*2),
-        ('tci', c_uint16*2),
-        ('type_id', c_ushort)
-    ]
-
-    def __new__(self, socket_buffer):
-        self.dst_addr = socket_buffer[:6] # grab the bytes objects directly
-        self.src_addr = socket_buffer[6:12] # before they get put into int
-        return self.from_buffer_copy(socket_bufer)
-
-    def __init__(self, socket_buffer):
-        # make the dst and src addresses human-readable
-        self.dst_addr = self._convert_addresses(self.dst_addr)
-        self.src_addr = self._convert_addresses(self.src_addr)
-
-        self.protocol_map = {8:'IP'} # TODO
-
-        self.has_vlan_tag = True
-        self.length = 20 # bytes
-
-        try:
-            self.protocol = self.protocol_map[self.type_id]
-        except:
-            self.protocol = str(self.type_id)
-
 
 class IP(Structure):
     _fields_ = [
@@ -111,7 +74,6 @@ class IP(Structure):
             self.protocol = self.protocol_map[self.protocol_num]
         except:
             self.protocol = str(self.protocol_num)
-
 
 class ICMP(Structure):
     _fields_ = [

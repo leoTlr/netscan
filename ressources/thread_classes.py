@@ -8,8 +8,8 @@ from .protocol_structs import IP, ICMP, Ether # udpSenderThread.run(), listenerT
 from ctypes import sizeof # udpSenderThread.run()
 
 
-class unprivThread(threading.Thread):
-    """ add dropPrivileged() mehtod to thread """
+class baseThread(threading.Thread):
+    """ add dropPrivileges() mehtod to thread """
 
     # TODO make class abstract somehow to prevent instanciation 
 
@@ -46,7 +46,7 @@ class unprivThread(threading.Thread):
         os.umask(0o22)
 
 
-class listenerThread(unprivThread):
+class listenerThread(baseThread):
     """ Waits for packets to arrive and decodes them
         to check for 'ICMP: Port Unreachable' """
 
@@ -76,133 +76,73 @@ class listenerThread(unprivThread):
             self.is_privileged = True
             return sock
         except PermissionError: # TODO: ICMP echo schould pe possible like this without root privileges
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP)
             if not self.quiet:
-                print('[WARNING] no permissions for raw socket -> no MAC-adresses')
-            return sock
-        except:
-            print(format_exc())
+                print('[ERROR] no permissions for raw socket. listener stopped')
+            self.stop()
+            exit(-1)
+        except Exception as e:
             if not self.quiet:
                 print('[ERROR] could not create socket for listener. listener stopped')
+                print(e)
             self.stop()
+            exit(-1)
         finally:
             # privileges only needed for socket creation
             self.dropPrivileges()
 
     def run(self):
+
         # use 'with'-cotext to ensure closing the socket
         with self._initSocket() as listener:
-            if self.is_privileged:
-                self._runPrivileged(listener)
-            else:
-                # TODO
-                self._runNonPrivileged(listener)
 
-    def _runPrivileged(self, listener):
+            if not self.quiet and not self.stopped():
+                print('Listening for incoming packets...')
 
-        if not self.quiet and not self.stopped():
-            print('Listening for incoming packets...')
+            while not self.stopped():
 
-        while not self.stopped():
+                # read a packet
+                raw_packet = listener.recv(65565) # TODO set on max combined header length
 
-            # read a packet
-            raw_packet = listener.recv(65565)
-            eth_len = 14 # 18 byte if VLAN-Tag set, but need only 14 to determine
+                # need 14 bytes to determine if vlan tag present
+                eth_header = Ether(raw_packet[:14])
+                eth_len = eth_header.length # actual length of header determined during Ether()-construction
 
-            # some MAC adresses seem to be wrong (not all)
-            #       -> only own mac seems to be incorrect (it is 0) but why?
-            #       -> sould not be in output anyway (done)
+                # 8 = IP
+                if eth_header.type_id == 8:
+                    ip_header = IP(raw_packet[eth_len:eth_len+20])
 
-            eth_header = Ether(raw_packet[:eth_len])
+                    if ip_header.protocol == 'ICMP':
+                        # ihl specifies offset in 32-bit words -> ihl*4(bytes)=offset
+                        offset = ip_header.ihl*4
+                        buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
 
-            if eth_header.has_vlan_tag:
-                # need to increase offset to start of IP-header then
-                eth_len = 18
+                        icmp_header = ICMP(buffer)
 
-            # 8 = IP
-            if eth_header.type_id == 8:
-                ip_header = IP(raw_packet[eth_len:eth_len+20])
+                        # check for destination port unreachable message
+                        if icmp_header.code == 3 and icmp_header.type == 3:
 
-                if ip_header.protocol == 'ICMP':
-                    # ihl specifies offset in 32-bit words -> ihl*4(bytes)=offset
-                    offset = ip_header.ihl*4
-                    buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
+                            # prevent double counting
+                            # TODO find better solution without sending additional packages
+                            #       -> socket.getaddrinfo(None, 65333) returns only localhost, not actual addr
+                            #       -> socket.gethostbyname(socket.gethostname()) returns addr, but probably sends additional packets
+                            if not self.own_ip:
+                                self.own_ip = ip_header.dst
 
-                    icmp_header = ICMP(buffer)
+                            if not ip_header.src in self.hostup_set:
+                                ip_str = '{}'.format(ip_header.src_addr)
+                                mac_str = '{}'.format(eth_header.src_addr)
+                                if not self.quiet:
+                                    print('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                                if self.prepare_xml_data:
+                                    self.xml_set.add((ip_str, mac_str))
 
-                    # check for destination port unreachable message
-                    if icmp_header.code == 3 and icmp_header.type == 3:
+                                self.hostup_set.add(ip_header.src)
+                                self.hostup_counter += 1
 
-                        # prevent double counting
-                        # note that this is not absolutely failsafe
-                        # first reply can be the package sent to own IP
-                        # TODO find better solution without sending additional packages
-                        #       -> socket.getaddrinfo(None, 65333) returns only localhost, not actual addr
-                        #       -> socket.gethostbyname(socket.gethostname()) returns addr, but probably sends additional packets
-                        if not self.own_ip:
-                            self.own_ip = ip_header.dst
-                        if self.own_ip == ip_header.src:
-                            continue
-
-                        if not ip_header.src in self.hostup_set:
-                            ip_str = '{}'.format(ip_header.src_addr)
-                            mac_str = '{}'.format(eth_header.src_addr)
-                            if not self.quiet:
-                                print('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
-                            if self.prepare_xml_data:
-                                self.xml_set.add((ip_str, mac_str))
-
-                            self.hostup_set.add(ip_header.src)
-                            self.hostup_counter += 1
-
-            self.is_listening = True
-
-    def _runNonPrivileged(self, listener): # TODO
-
-        if not self.quiet and not self.stopped():
-            print('Listening for incoming packets (unprivileged)...')
-
-        listener.setblocking(False)
-        h_set = set()
-
-        while not self.stopped():
-            try:
-                raw_header = listener.recv(512)
-                ip_header = IP(raw_header)
-                h_set.add(ip_header)
-            except socket.error:
-                pass
-            except:
-                print(format_exc())
-            self.is_listening = True
-
-        self.printHeaderFields(h_set)
+                self.is_listening = True
 
 
-    def printHeaderFields(self, headers): # for debug
-        cntr = 1
-        try:
-            for header in headers:
-                print('Header nr {}:'.format(cntr))
-                cntr += 1
-                for tup in header._fields_:
-                    if tup[0] == 'src':
-                        print('-{:15}{}'.format('src:', header.src_addr))
-                    elif tup[0] == 'dst':
-                        print('-{:15}{}'.format('dst:', header.dst_addr))
-                    else:
-                        print('-{:15}{}'.format(tup[0]+':', getattr(header, tup[0])))
-                try:
-                    if header.has_vlan_tag:
-                        print('Has VLAN tag')
-                except:
-                    pass
-                print()
-        except:
-            pass
-
-
-class udpSenderThread(unprivThread):
+class udpSenderThread(baseThread):
     """ Thread for sending UDP packets to every Host in subnet.
         Default Port is 65333. This port hopefully is closed on target systems,
         so they return 'ICMP: Port unreachable' """

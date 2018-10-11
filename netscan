@@ -11,8 +11,6 @@ from sys import exit
 
 from ressources.thread_classes import listenerThread, udpSenderThread
 
-from traceback import format_exc # debug
-
 desc = """
 Host discovery tool.
 Will list and count all responding devices in given network by sending an
@@ -85,10 +83,8 @@ def main(address, dd_netmask=None):
     sender_thread.join(timeout=5) # wait for sender thread to complete
 
     # wait for late responses
-    if args.wait:
-        time.sleep(args.wait)
-    else:
-        time.sleep(2)
+    if args.wait: time.sleep(args.wait)
+    else: time.sleep(2)
 
     listener_thread.stop()
     listener_thread.join(timeout=5) # wait for listener to finish
@@ -290,7 +286,6 @@ if args.ip_address:
             print('[ERROR] root needed')
         exit(-1)
     except:
-        print(format_exc())
         if not args.quiet:
             print('[ERROR] could not create socket. exiting')
         exit(-1)
