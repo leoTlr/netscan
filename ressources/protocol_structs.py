@@ -1,8 +1,6 @@
-#!/usr/bin/python
-
 import struct
-import socket
-from ctypes import *
+import socket # IP
+from ctypes import c_ubyte, c_ushort, c_uint16, c_uint32, Structure
 
 """ Structures with c-type fields as container for packet data  """
 

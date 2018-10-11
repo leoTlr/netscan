@@ -1,12 +1,9 @@
-#!/usr/bin/python
-
 import threading
 import socket
 import os, pwd, grp # listenerThread.dropPrivileges()
-from traceback import format_exc # debug
 from .protocol_structs import IP, ICMP, Ether # udpSenderThread.run(), listenerThread.run()
-from ctypes import sizeof # udpSenderThread.run()
-
+from ctypes import sizeof # listenerThread.run()
+import logging
 
 class baseThread(threading.Thread):
     """ bundles common methods and a shared Event """
@@ -26,16 +23,14 @@ class baseThread(threading.Thread):
         """ drop root-privileges if run with sudo  """
 
         if os.getuid() != 0:
-            # not root anyway
-            return
+            return # not root anyway
 
         # get name of sudo user (returns None if ran in root shell)
         user_name = os.getenv('SUDO_USER')
 
         # there is no $SUDO_USER run in root shell
         if not user_name:
-            if not self.quiet: # TODO 
-                print('[WARNING] can not drop privileges to $SUDO_USER if running in root shell')
+            logging.warning('can not drop privileges to $SUDO_USER if running in root shell')
             return
         
         # get uid/gid from name (only works if running with sudo, not with su root)
@@ -51,7 +46,7 @@ class baseThread(threading.Thread):
         # set umask
         os.umask(0o22)
 
-    def stop(self, abnormal=True):
+    def stop(self, abnormal=False):
         if abnormal:
             self.error = True
         self.stop_event.set()
@@ -82,14 +77,12 @@ class listenerThread(baseThread):
             self.is_privileged = True
             return sock
         except PermissionError:
-            if not self.quiet:
-                print('[ERROR] no permissions for raw socket. listener stopped')
+            logging.error('no permissions for raw socket. listener stopped')
             self.stop(True)
             exit(-1)
         except Exception as e:
-            if not self.quiet:
-                print('[ERROR] could not create socket for listener. listener stopped')
-                print(e)
+            logging.error('could not create socket for listener. listener stopped')
+            logging.debug(e)
             self.stop(True)
             exit(-1)
         finally:
@@ -101,8 +94,8 @@ class listenerThread(baseThread):
         # use 'with'-cotext to ensure closing the socket
         with self._initSocket() as listener:
 
-            if not self.quiet and not self.stopped():
-                print('Listening for incoming packets...')
+            if not self.stopped():
+                logging.info('Listening for incoming packets...')
 
             self.listener_ready.set()
 
@@ -139,8 +132,8 @@ class listenerThread(baseThread):
                             if not ip_header.src in self.hostup_set:
                                 ip_str = '{}'.format(ip_header.src_addr)
                                 mac_str = '{}'.format(eth_header.src_addr)
-                                if not self.quiet:
-                                    print('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                
+                                logging.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
                                 if self.prepare_xml_data:
                                     self.xml_set.add((ip_str, mac_str))
 
@@ -164,8 +157,7 @@ class udpSenderThread(baseThread):
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             return sock
         except:
-            if not self.quiet:
-                print('[ERROR] could not create socket for sender. sender stopped')
+            logging.error('could not create socket for sender. sender stopped')
             self.stop(True)
             exit(-1)
         finally:
@@ -181,10 +173,10 @@ class udpSenderThread(baseThread):
             # gettring released in listener thread
             self.listener_ready.wait()
 
-            if not self.quiet and not self.stopped():
+            if not self.stopped():
                 addr_str = self.bin2DottedDecimal(self.network_addr)
                 subnet = 32-(self.broadcast_addr-self.network_addr).bit_length()
-                print('Sending packets to {}/{}'.format(addr_str, subnet))
+                logging.info('Sending packets to {}/{}'.format(addr_str, subnet))
 
             for bin_addr in self.addressGenerator(self.network_addr, self.broadcast_addr):
                 if self.stopped():
@@ -194,8 +186,7 @@ class udpSenderThread(baseThread):
                 try:
                     sender.sendto(bytes(8), (dd_addr, self.closed_port))
                 except:
-                    if not self.quiet:
-                        print('[WARNING] sendig of packet to {} failed.'.format(dd_addr))
+                    logging.warning('sendig of packet to {} failed.'.format(dd_addr))
 
     def addressGenerator(self, network_addr, broadcast_addr):
         """ yields every host-address in subnet
@@ -205,7 +196,7 @@ class udpSenderThread(baseThread):
             yield network_addr # for /32 check this addr
         elif network_addr+1 == broadcast_addr:
             if not self.quiet:
-                print('[Warning] no host-addresses in /31 network')
+                logging.warning('no host-addresses in /31 network')
             raise StopIteration # dont yield
         else:
             addr = network_addr
