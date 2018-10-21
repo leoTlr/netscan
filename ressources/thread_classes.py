@@ -106,10 +106,10 @@ class listenerThread(baseThread):
 
                 # need 14 bytes to determine if vlan tag present
                 eth_header = Ether(raw_packet[:14])
-                eth_len = eth_header.length # actual length of header determined during Ether()-construction
+                eth_len = eth_header.length # actual length
 
                 # 8 = IP
-                if eth_header.type_id == 8:
+                if eth_header.ethernet_type_id == 8:
                     ip_header = IP(raw_packet[eth_len:eth_len+20])
 
                     if ip_header.protocol == 'ICMP':
@@ -122,22 +122,25 @@ class listenerThread(baseThread):
                         # check for destination port unreachable message
                         if icmp_header.code == 3 and icmp_header.type == 3:
 
-                            # prevent double counting
+                            # prevent counting package sent to own ip
                             # TODO find better solution without sending additional packages
                             #       -> socket.getaddrinfo(None, 65333) returns only localhost, not actual addr
                             #       -> socket.gethostbyname(socket.gethostname()) returns addr, but probably sends additional packets
                             if not self.own_ip:
-                                self.own_ip = ip_header.dst
+                                self.own_ip = ip_header.dst_addr
+                            if self.own_ip == ip_header.src_addr:
+                                continue     
 
-                            if not ip_header.src in self.hostup_set:
-                                ip_str = '{}'.format(ip_header.src_addr)
-                                mac_str = '{}'.format(eth_header.src_addr)
+                            # prevent double counting
+                            if not ip_header.src_addr in self.hostup_set:
+                                ip_str = ip_header.src_addr
+                                mac_str = eth_header.src_addr
                 
                                 logging.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
                                 if self.prepare_xml_data:
                                     self.xml_set.add((ip_str, mac_str))
 
-                                self.hostup_set.add(ip_header.src)
+                                self.hostup_set.add(ip_header.src_addr)
                                 self.hostup_counter += 1
 
 

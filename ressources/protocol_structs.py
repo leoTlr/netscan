@@ -1,6 +1,6 @@
 import struct
 import socket # IP
-from ctypes import c_ubyte, c_ushort, c_uint16, c_uint32, Structure
+from ctypes import c_ubyte, c_ushort, c_uint16, c_uint32, Structure, BigEndianStructure, LittleEndianStructure
 
 """ Structures with c-type fields as container for packet data  """
 
@@ -12,33 +12,25 @@ class Ether(Structure):
     ]
 
     def __new__(self, socket_buffer):
-        self.dst_addr = socket_buffer[:6] # grab the bytes objects directly
-        self.src_addr = socket_buffer[6:12] # before they get put into int
-
-        # concatenate bytes to type_id
-        id = 0b0
-        id += (socket_buffer[12]<<8)
-        id += socket_buffer[13]
-
-        # check for vlan tag
-        if id == 0x8100:
-            self.length = 18 # bytes
-        else:
-            self.length = 14
-
         return self.from_buffer_copy(socket_buffer)
 
     def __init__(self, socket_buffer):
         # make the dst and src addresses human-readable
-        self.dst_addr = self._convert_addresses(self.dst_addr)
-        self.src_addr = self._convert_addresses(self.src_addr)
+        self.dst_addr = self._convert_addresses(socket_buffer[:6])
+        self.src_addr = self._convert_addresses(socket_buffer[6:12])
 
-        self.protocol_map = {8:'IP'} # TODO
+        # concatenate bytes to type_id
+        etid = 0b0
+        etid += (socket_buffer[12]<<8)
+        etid += socket_buffer[13]
+        self.ethernet_type_id = socket.ntohs(etid)
+        #print(hex(self.ethernet_type_id), self.type_id)
 
-        try:
-            self.protocol = self.protocol_map[self.type_id]
-        except:
-            self.protocol = str(self.type_id)
+        # check for vlan tag
+        if self.ethernet_type_id == 0x8100:
+            self.length = 18 # bytes
+        else:
+            self.length = 14
 
     def _convert_addresses(self, address_bytelst):
         return '{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}'.format(*address_bytelst)
