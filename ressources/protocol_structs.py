@@ -1,6 +1,6 @@
 import struct
 import socket # IP
-from ctypes import c_ubyte, c_ushort, c_uint8, c_uint16, c_uint32, Structure, BigEndianStructure, LittleEndianStructure
+from ctypes import c_uint8, c_uint16, c_uint32, BigEndianStructure
 
 """ Structures with c-type fields as container for packet data  """
 
