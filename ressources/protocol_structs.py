@@ -1,14 +1,14 @@
 import struct
 import socket # IP
-from ctypes import c_ubyte, c_ushort, c_uint16, c_uint32, Structure, BigEndianStructure, LittleEndianStructure
+from ctypes import c_ubyte, c_ushort, c_uint8, c_uint16, c_uint32, Structure, BigEndianStructure, LittleEndianStructure
 
 """ Structures with c-type fields as container for packet data  """
 
-class Ether(Structure):
+class Ether(BigEndianStructure):
     _fields_ = [
         ('dst', c_uint16*3),
         ('src', c_uint16*3),
-        ('type_id', c_ushort), # not 802.1Q VLAN TPID, just regular ether type field
+        ('type_id', c_uint16), # not 802.1Q VLAN TPID, just regular ether type field
     ]
 
     def __new__(self, socket_buffer):
@@ -19,15 +19,8 @@ class Ether(Structure):
         self.dst_addr = self._convert_addresses(socket_buffer[:6])
         self.src_addr = self._convert_addresses(socket_buffer[6:12])
 
-        # concatenate bytes to type_id
-        etid = 0b0
-        etid += (socket_buffer[12]<<8)
-        etid += socket_buffer[13]
-        self.ethernet_type_id = socket.ntohs(etid)
-        #print(hex(self.ethernet_type_id), self.type_id)
-
         # check for vlan tag
-        if self.ethernet_type_id == 0x8100:
+        if self.type_id == 0x8100:
             self.length = 18 # bytes
         else:
             self.length = 14
@@ -35,17 +28,17 @@ class Ether(Structure):
     def _convert_addresses(self, address_bytelst):
         return '{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}'.format(*address_bytelst)
 
-class IP(Structure):
+
+class IP(BigEndianStructure):
     _fields_ = [
-        ('ihl', c_ubyte, 4),
-        ('version', c_ubyte, 4),
-        ('tos', c_ubyte),
-        ('len', c_ushort),
-        ('id', c_ushort),
-        ('offset', c_ushort),
-        ('ttl', c_ubyte),
-        ('protocol_num', c_ubyte),
-        ('sum', c_ushort),
+        ('version_and_ihl', c_uint8),
+        ('tos', c_uint8),
+        ('total_len', c_uint16),
+        ('id', c_uint16),
+        ('flags_and_fragment_offset', c_uint16),
+        ('ttl', c_uint8),
+        ('protocol_num', c_uint8),
+        ('checksum', c_uint16),
         ('src', c_uint32),
         ('dst', c_uint32)
     ]
@@ -54,28 +47,37 @@ class IP(Structure):
         return self.from_buffer_copy(socket_buffer)
 
     def __init__(self, socket_buffer):
-        self.protocol_map = {1:'ICMP', 6:'TCP', 17:'UDP'}
+        # convert address to dotted decimal
+        self.src_addr = socket.inet_ntoa(struct.pack('!L', self.src))
+        self.dst_addr = socket.inet_ntoa(struct.pack('!L', self.dst))
 
-        # pack addr to bytes-obj and convert this to dotted decimal
-        self.src_addr = socket.inet_ntoa(struct.pack('<L', self.src))
-        self.dst_addr = socket.inet_ntoa(struct.pack('<L', self.dst))
+    @property
+    def ip_version(self):
+        return (self.version_and_ihl & 0xF0) >> 4
 
-        try:
-            self.protocol = self.protocol_map[self.protocol_num]
-        except:
-            self.protocol = str(self.protocol_num)
+    @property
+    def ip_ihl(self):
+        return self.version_and_ihl & 0x0F
 
-class ICMP(Structure):
+    @property
+    def ip_flags(self):
+        return (self.flags_and_fragment_offset & 0xE000) >> 13
+
+    @property
+    def offset(self):
+        return self.flags_and_fragment_offset & 0x1FFF
+
+
+class ICMP(BigEndianStructure):
     _fields_ = [
-        ('type', c_ubyte),
-        ('code', c_ubyte),
-        ('checksum', c_ushort),
-        ('unused', c_ushort),
-        ('next_hop_mtu', c_ushort)
+        ('type', c_uint8),
+        ('code', c_uint8),
+        ('checksum', c_uint16),
+        ('rest', c_uint32)
     ]
 
     def __new__(self, socket_buffer):
         return self.from_buffer_copy(socket_buffer)
-
+    
     def __init__(self, socket_buffer):
         pass

@@ -108,19 +108,27 @@ class listenerThread(baseThread):
                 eth_header = Ether(raw_packet[:14])
                 eth_len = eth_header.length # actual length
 
-                # 8 = IP
-                if eth_header.ethernet_type_id == 8:
+                # 0x800 = IP
+                if eth_header.type_id == 0x0800:
                     ip_header = IP(raw_packet[eth_len:eth_len+20])
 
-                    if ip_header.protocol == 'ICMP':
+                    # 0x01 = ICMP
+                    if ip_header.protocol_num == 0x01:
                         # ihl specifies offset in 32-bit words -> ihl*4(bytes)=offset
-                        offset = ip_header.ihl*4
-                        buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
+                        offset = ip_header.ip_ihl*4
+                        icmp_buffer = raw_packet[eth_len+offset:eth_len+offset+sizeof(ICMP)]
 
-                        icmp_header = ICMP(buffer)
+                        icmp_header = ICMP(icmp_buffer)
 
                         # check for destination port unreachable message
-                        if icmp_header.code == 3 and icmp_header.type == 3:
+                        # dst port unreachabele is type = code = 0x03
+                        # but it can happen that it is one of:
+                        #   9: Network administratively prohibited
+                        #   10: Host administratively prohibited 
+                        #   13: Communication administratively prohibited
+                        # or another one of this group
+                        # -> dont check code specifically and count everything with icmp type 0x03
+                        if icmp_header.type == 0x03:
 
                             # prevent counting package sent to own ip
                             # TODO find better solution without sending additional packages
