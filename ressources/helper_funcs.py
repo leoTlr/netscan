@@ -1,6 +1,8 @@
 from re import fullmatch # regex address validation (is_valid_dd_netmask())
-from datetime import datetime # save_xml()
+from datetime import datetime # prepare_path()
 import xml.etree.ElementTree as ET # save_xml(), compare_xml()
+from xml.dom import minidom # save_xml()
+from pathlib import Path, WindowsPath, PosixPath # save_xml()
 import socket # check_privileges()
 import logging
 
@@ -23,15 +25,88 @@ def is_valid_portnr(portnr):
     else:
         return False
 
-def save_xml(data_set, network):
-    # save discovered hosts as xml file
-    # TODO:  - with import pathlib, check if folder exists, else create
-    #        - allow custom paths
-    #        - save as normal user, not root
+def prepare_path(path):
+    # test if path is file or directory (create if needed)
+    # ensure it is writable
+    # return (path, timestamp) to writable file else (None, timestamp)
 
+    assert isinstance(path, str)
+
+    p = Path(path)
     timestamp = '{:%Y-%m-%d-%H-%M-%S}'.format(datetime.now())
+    filename = 'scan_{}.xml'.format(timestamp)
+
+    if not p.exists():
+        if path.endswith('/') or path.endswith('\\'):
+            try:
+                p.mkdir(mode=0o777, parents=True)
+            except:
+                logging.error('Directory for save could not be created')
+                return (None, timestamp)
+        else:
+            p = _try_append_else_create(p)
+            return (p, timestamp)
+    
+    if p.is_dir():
+        p = _try_touch(p, filename)
+        return (p, timestamp)
+    if p.is_file():
+        p = _try_append_else_create(p)
+        return (p, timestamp)
+
+    logging.error('failed to prepare save file')
+    return (None, timestamp)
+
+def _try_touch(path, filename):
+    # try to create file at path
+    # return filepath on success else None
+
+    assert isinstance(path, Path) and path.is_dir()
+    assert isinstance(filename, str)
+
+    filepath = path / filename # concatenate to new path
+    try:
+        filepath.touch()
+        return filepath
+    except FileExistsError:
+        logging.warning('File already exists. Will append scan')
+        return filepath
+    except:
+        logging.error('Could not write to {}'.format(filepath))
+        return None       
+
+def _try_append_else_create(filepath):
+    # try to append to file
+    # return path on success alse None
+    
+    assert (isinstance(filepath, Path) or isinstance(filepath, PosixPath) \
+            or isinstance(filepath, WindowsPath))
+
+    try:
+        if filepath.is_file():
+            logging.info('File already exists. Will append scan')
+        with filepath.open(mode='a', ) as f:
+            f.close()
+        return filepath
+    except:
+        logging.error('Could not write to {}'.format(filepath))
+        return None
+
+def save_xml(data_set, network_str, path='./saved_scans/'):
+    # save discovered hosts as xml file
+    # no path checking done, use prepare_path()
+
+    assert isinstance(data_set, set)
+    assert isinstance(network_str, str) and '/' in network_str
+
+    save_file, timestamp = prepare_path(path)
+
+    assert (isinstance(save_file, Path) or isinstance(save_file, PosixPath) \
+                                        or isinstance(save_file, WindowsPath))
+    assert isinstance(timestamp, str)
+
     attributes = {}
-    attributes['network'] = network
+    attributes['network'] = network_str
     attributes['timestamp'] = timestamp
 
     scan = ET.Element('scan', attrib=attributes)
@@ -41,14 +116,18 @@ def save_xml(data_set, network):
         ET.SubElement(host, 'ip').text = ip_str
         ET.SubElement(host, 'mac').text = mac_str
 
-    tree = ET.ElementTree(scan)
+    # using ET.ElementTree(scan).write(fd) does no indentation
+    pretty_xml_string = minidom.parseString(ET.tostring(scan)).toprettyxml(indent="  ")
 
-    filename = '../saved_scans/scan_{}.xml'.format(timestamp)
-
-    with open(filename, 'wb') as xml_file:
-        tree.write(xml_file)
-
-    logging.info('saved hosts to "{}"'.format(filename))
+    try:
+        with save_file.open(mode='a') as xml_file:
+            xml_file.write(pretty_xml_string)
+    except PermissionError:
+        logging.error('Saving scan failed (no permission)')
+    except:
+        logging.error('Saving scan failed')
+    else:
+        logging.info('Saved scan to "{}"'.format(save_file))
 
 def compare_xml(data_set, network, path):
     # compare discovered hosts with a .xml save of previous search

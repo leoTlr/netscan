@@ -10,11 +10,12 @@ from sys import exit
 from ressources.helper_funcs import check_privileges, is_valid_cidr, is_valid_dd_netmask, is_valid_portnr
 
 # needed in main
-from ressources.helper_funcs import calc_addr_range, save_xml, compare_xml
+from ressources.helper_funcs import calc_addr_range, save_xml, compare_xml, prepare_path
 from ressources.thread_classes import listenerThread, udpSenderThread
 
 # ------ commandline parsing setup -------------------
 # TODO: -s and -c in mutually exclusive grp
+#       -s and -sf in mutually excl grp
 #       input validation for -c
 
 desc = """
@@ -38,6 +39,8 @@ parser.add_argument('-q', '--quiet', action='store_true',
                      save if -c is selected)')
 parser.add_argument('-s', '--save', action='store_true', help='save discovered hosts \
                         as .xml file in ./saved_scans')
+parser.add_argument('-sf', '--save-file', metavar='PATH', help='like -s but save to provided \
+                        directory or file')
 parser.add_argument('-c', '--compare', metavar='PATH', help='scan and compare with \
                     saved hosts in file. If this is selected with -q, the number of\
                      changes is returned')
@@ -74,11 +77,12 @@ def main(address, dd_netmask=None):
     else: # non-cidr-notation
         network_addr, broadcast_addr, subnet = calc_addr_range(address, dd_netmask)
 
+    
     # create listener thread
     listener_thread = listenerThread()
     if args.quiet:
         listener_thread.quiet = True
-    if args.save or args.compare:
+    if args.save or args.save_file or args.compare:
         listener_thread.prepare_xml_data = True
 
     listener_thread.start()
@@ -103,11 +107,13 @@ def main(address, dd_netmask=None):
     netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
     cidr_nw_str = '{}/{}'.format(netw_addr_str, subnet)
 
-    if args.save or args.compare:
+    # in case output shall be saved, collect data and write to file
+    if args.save or args.save_file or args.compare:
         data_set = listener_thread.xml_set
-
-    if args.save:
-        save_xml(data_set, cidr_nw_str)
+        if args.save:
+            save_xml(data_set, cidr_nw_str)
+        elif args.save_file:
+            save_xml(data_set, cidr_nw_str, path=args.save_file)
 
     if not listener_thread.stoppedAbnormally() or not sender_thread.stoppedAbnormally():
         if args.compare:
