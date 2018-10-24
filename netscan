@@ -48,16 +48,16 @@ args = parser.parse_args()
 # ------ end of commandline parsing setup --------------
 
 # ------ setup logging -------------------------------
-class customFormatter(logging.Formatter):
+class infoWithoutLevelPrefixFormatter(logging.Formatter):
     """ different log formatting for loglevel INFO """
     def format(self, record):
-        if record.levelno == logging.INFO:
-            return record.msg
-        return '[{}] {}'.format(record.infolevel, record.msg)
+        if record.levelno != logging.INFO:
+            record.msg = '[{}] {}'.format(record.levelname, record.msg)
+        return super().format(record)
 
 # create a custom handler, set its formatter to the custom formatter
 handler = logging.StreamHandler()
-handler.setFormatter(customFormatter())
+handler.setFormatter(infoWithoutLevelPrefixFormatter())
 
 # adapt loglevel to user input
 if args.quiet:
@@ -117,7 +117,8 @@ def main(address, dd_netmask=None):
 
     if not listener_thread.stoppedAbnormally() or not sender_thread.stoppedAbnormally():
         if args.compare:
-            logging.info(compare_xml(data_set, cidr_nw_str, args.compare))
+            msg_str = str(compare_xml(data_set, cidr_nw_str, args.compare))
+            logging.info(msg_str)
             exit(0)
         else:
             logging.info('{} hosts up in {}'.format(listener_thread.hostup_counter, cidr_nw_str))
