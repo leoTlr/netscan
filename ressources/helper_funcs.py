@@ -84,7 +84,7 @@ def _try_append_else_create(filepath):
 
     try:
         if filepath.is_file():
-            logging.info('File already exists. Will append scan')
+            logging.warning('File already exists. Will append scan')
         with filepath.open(mode='a', ) as f:
             f.close()
         return filepath
@@ -113,9 +113,9 @@ def save_xml(data_set, network_str, path='./saved_scans/'):
 
     for ip_str, mac_str in data_set:
         host = ET.SubElement(scan, 'host')
-        ET.SubElement(host, 'ip').text = ip_str
-        ET.SubElement(host, 'mac').text = mac_str
-
+        host.set('IP', ip_str)
+        host.set('MAC', mac_str)
+        
     # using ET.ElementTree(scan).write(fd) does no indentation
     pretty_xml_string = minidom.parseString(ET.tostring(scan)).toprettyxml(indent="  ")
 
