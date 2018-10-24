@@ -10,8 +10,9 @@ from sys import exit
 from ressources.helper_funcs import check_privileges, is_valid_cidr, is_valid_dd_netmask, is_valid_portnr
 
 # needed in main
-from ressources.helper_funcs import calc_addr_range, save_xml, compare_xml, prepare_path
+from ressources.helper_funcs import calc_addr_range
 from ressources.thread_classes import listenerThread, udpSenderThread
+from ressources.xml_funcs import save_xml, compare_xml
 
 # ------ commandline parsing setup -------------------
 # TODO: -s and -c in mutually exclusive grp
@@ -117,13 +118,15 @@ def main(address, dd_netmask=None):
 
     if not listener_thread.stoppedAbnormally() or not sender_thread.stoppedAbnormally():
         if args.compare:
-            msg_str = str(compare_xml(data_set, cidr_nw_str, args.compare))
-            logging.info(msg_str)
+            nr_changes = compare_xml(data_set, cidr_nw_str, args.compare)
+            if args.quiet:
+                # only output if --quiet
+                print(nr_changes)
             exit(0)
         else:
             logging.info('{} hosts up in {}'.format(listener_thread.hostup_counter, cidr_nw_str))
             if args.quiet:
-                # might seem contra intuitive but remember args.quiet -> loglevel = ERROR -> info wouldnt get printed
+                # only output if --quiet
                 print(listener_thread.hostup_counter)
             exit(0)
     else:
