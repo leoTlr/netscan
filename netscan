@@ -27,6 +27,8 @@ ICMP: Port unreachable responses.
 """
 
 parser = argparse.ArgumentParser(description=desc)
+save_compare_group = parser.add_mutually_exclusive_group()
+save_save_file_group = save_compare_group.add_mutually_exclusive_group()
 
 parser.add_argument('ip_address', metavar='IPv4-address', help='IPv4 Address in CIDR-notation')
 parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation \
@@ -38,11 +40,11 @@ parser.add_argument('-p', '--port', help='define a closed UDP port to use. Defau
 parser.add_argument('-q', '--quiet', action='store_true',
                     help='only output number of discovered hosts (or number of changes since\
                      save if -c is selected)')
-parser.add_argument('-s', '--save', action='store_true', help='save discovered hosts \
+save_save_file_group.add_argument('-s', '--save', action='store_true', help='save discovered hosts \
                         as .xml file in ./saved_scans')
-parser.add_argument('-sf', '--save-file', metavar='PATH', help='like -s but save to provided \
+save_save_file_group.add_argument('-sf', '--save-file', metavar='PATH', help='like -s but save to provided \
                         directory or file')
-parser.add_argument('-c', '--compare', metavar='PATH', help='scan and compare with \
+save_compare_group.add_argument('-c', '--compare', metavar='PATH', help='scan and compare with \
                     saved hosts in file. If this is selected with -q, the number of\
                      changes is returned')
 args = parser.parse_args()
