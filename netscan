@@ -1,10 +1,12 @@
 #!/usr/bin/python
 
-import argparse
-import threading
-import time
 import logging
+from time import sleep
 from sys import exit
+
+# need to be run before main
+from ressources.argparse_setup import setup_argparse
+from ressources.logging_setup import setup_logging
 
 # for input validation before main
 from ressources.helper_funcs import check_privileges, is_valid_cidr, is_valid_dd_netmask, is_valid_portnr
@@ -14,63 +16,6 @@ from ressources.helper_funcs import calc_addr_range
 from ressources.thread_classes import listenerThread, udpSenderThread
 from ressources.xml_funcs import save_xml, compare_xml
 
-# ------ commandline parsing setup -------------------
-# TODO: -s and -c in mutually exclusive grp
-#       -s and -sf in mutually excl grp
-#       input validation for -c
-
-desc = """
-Host discovery tool.
-Will list and count all responding devices in given network by sending an
-UDP-packet to a closed port at each address in network and waiting for
-ICMP: Port unreachable responses.
-"""
-
-parser = argparse.ArgumentParser(description=desc)
-save_compare_group = parser.add_mutually_exclusive_group()
-save_save_file_group = save_compare_group.add_mutually_exclusive_group()
-
-parser.add_argument('ip_address', metavar='IPv4-address', help='IPv4 Address in CIDR-notation')
-parser.add_argument('-nm', '--netmask', help='netmask in dotted decimal notation \
-                    (only needed if ip_address not in CIDR-notation)', metavar='NM')
-parser.add_argument('-w', '--wait', help='define time (seconds) to wait for responses \
-                     after all packets are sent. Default 2', type=int, metavar='SEC')
-parser.add_argument('-p', '--port', help='define a closed UDP port to use. Default 65333',
-                    type=int)
-parser.add_argument('-q', '--quiet', action='store_true',
-                    help='only output number of discovered hosts (or number of changes since\
-                     save if -c is selected)')
-save_save_file_group.add_argument('-s', '--save', action='store_true', help='save discovered hosts \
-                        as .xml file in ./saved_scans')
-save_save_file_group.add_argument('-sf', '--save-file', metavar='PATH', help='like -s but save to provided \
-                        directory or file')
-save_compare_group.add_argument('-c', '--compare', metavar='PATH', help='scan and compare with \
-                    saved hosts in file. If this is selected with -q, the number of\
-                     changes is returned')
-args = parser.parse_args()
-# ------ end of commandline parsing setup --------------
-
-# ------ setup logging -------------------------------
-class infoWithoutLevelPrefixFormatter(logging.Formatter):
-    """ different log formatting for loglevel INFO """
-    def format(self, record):
-        if record.levelno != logging.INFO:
-            record.msg = '[{}] {}'.format(record.levelname, record.msg)
-        return super().format(record)
-
-# create a custom handler, set its formatter to the custom formatter
-handler = logging.StreamHandler()
-handler.setFormatter(infoWithoutLevelPrefixFormatter())
-
-# adapt loglevel to user input
-if args.quiet:
-    log_level = logging.ERROR
-else:
-    log_level = logging.INFO
-
-# configure the logger to use the custom handler (arg as list because it needs to be an iterable)
-logging.basicConfig(level=log_level, handlers=[handler])
-# ------ end logging setup ---------------------------
 
 def main(address, dd_netmask=None):
 
@@ -101,8 +46,8 @@ def main(address, dd_netmask=None):
     sender_thread.join(timeout=5) # wait for sender thread to complete
 
     # wait for late responses
-    if args.wait: time.sleep(args.wait)
-    else: time.sleep(2)
+    if args.wait: sleep(args.wait)
+    else: sleep(2)
 
     listener_thread.stop(abnormal=False)
     listener_thread.join(timeout=5) # wait for listener to finish
@@ -137,7 +82,16 @@ def main(address, dd_netmask=None):
 
 
 if __name__ == '__main__':
-    # verify commandline args and run main
+    # verify commandline args, setup logging and run main
+
+    args = setup_argparse()
+
+    # adapt loglevel to user input
+    if args.quiet:
+        log_level = logging.ERROR
+    else:
+        log_level = logging.INFO
+    setup_logging(log_level)
 
     if args.port:
         if is_valid_portnr(args.port):
