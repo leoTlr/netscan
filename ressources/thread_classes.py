@@ -65,6 +65,7 @@ class listenerThread(baseThread):
     def __init__(self, quiet=False):
         super().__init__(name='listener', quiet=quiet)
         self.own_ip = None # becomes dest addr of first reply
+        self.sort = False # will not print captured packet info if true
         self.packet_info = dict() # {src = (src_str, mac_str, mac)}
 
     @property
@@ -143,12 +144,15 @@ class listenerThread(baseThread):
                             # prevent double printing by building a packet id
                             # ip_header.src already is an int, eth_header.src is not
                             eth_src = int.from_bytes(eth_header.src, byteorder='big', signed=False)
-                            packet_id =  eth_src ^ ip_header.src
+                            packet_id =  (ip_header.src << 48) + eth_src
                             if not packet_id in self.packet_info.keys(): # O(1)
                                 ip_str = ip_header.src_addr
                                 mac_str = eth_header.src_addr
                                 
-                                logging.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                                if self.sort: # just save for debug, dont print
+                                    logging.debug('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                                else:
+                                    logging.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
 
                                 self.packet_info[packet_id] = (ip_str, mac_str)
 

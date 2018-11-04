@@ -12,7 +12,7 @@ from ressources.logging_setup import setup_logging
 from ressources.helper_funcs import check_privileges, is_valid_cidr, is_valid_dd_netmask, is_valid_portnr
 
 # needed in main
-from ressources.helper_funcs import calc_addr_range
+from ressources.helper_funcs import calc_addr_range, print_sorted
 from ressources.thread_classes import listenerThread, udpSenderThread
 from ressources.xml_funcs import save_xml, compare_xml
 
@@ -29,6 +29,8 @@ def main(address, dd_netmask=None):
     listener_thread = listenerThread()
     if args.quiet:
         listener_thread.quiet = True
+    if args.sort:
+        listener_thread.sort = True
 
     listener_thread.start()
 
@@ -52,15 +54,18 @@ def main(address, dd_netmask=None):
     netw_addr_str = sender_thread.bin2DottedDecimal(network_addr)
     cidr_nw_str = '{}/{}'.format(netw_addr_str, subnet)
 
-    # in case output shall be saved, collect data and write to file
+    # collect data from listener
+    packet_data = listener_thread.packet_info
+
     if args.save or args.save_file or args.compare:
-        packet_data = listener_thread.packet_info
         if args.save:
             save_xml(packet_data, cidr_nw_str)
         elif args.save_file:
             save_xml(packet_data, cidr_nw_str, path=args.save_file)
 
     if not listener_thread.stoppedAbnormally() or not sender_thread.stoppedAbnormally():
+        if args.sort:
+            print_sorted(packet_data)
         if args.compare:
             nr_changes = compare_xml(packet_data, cidr_nw_str, args.compare)
             if args.quiet:

@@ -111,3 +111,11 @@ def is_valid_dd_netmask(address, netmask):
             return True
     except:
         return False
+
+def print_sorted(data_dict):
+    # sort data by ip and print
+    # keys are built like (ip << 48)+mac so it will sort after ip
+    sorted_keys = sorted(data_dict.keys())
+    for key in sorted_keys:
+        logging.info('[*] Host up:    {:<16}  {}'.format(data_dict[key][0], data_dict[key][1]))
+

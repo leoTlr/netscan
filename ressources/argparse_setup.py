@@ -23,6 +23,7 @@ def setup_argparse():
     parser.add_argument('-q', '--quiet', action='store_true',
                         help='only output number of discovered hosts (or number of changes since\
                         save if -c is selected)')
+    parser.add_argument('--sort', action='store_true', help='sort output by IP before printing')
     save_save_file_group.add_argument('-s', '--save', action='store_true', help='save discovered hosts \
                             as .xml file in ./saved_scans')
     save_save_file_group.add_argument('-sf', '--save-file', metavar='PATH', help='like -s but save to provided \
