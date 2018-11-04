@@ -5,11 +5,11 @@ from pathlib import Path, WindowsPath, PosixPath # save_xml()
 import logging
 
 
-def save_xml(data_set, network_str, path='./saved_scans/'):
+def save_xml(data_dict, network_str, path='./saved_scans/'):
     # save discovered hosts as xml file
     # uses _prepare_path() for path checking
 
-    assert isinstance(data_set, set)
+    assert isinstance(data_dict, dict)
     assert isinstance(network_str, str) and '/' in network_str
 
     save_file, timestamp = _prepare_path(path)
@@ -28,7 +28,7 @@ def save_xml(data_set, network_str, path='./saved_scans/'):
     #   ...
     # </scan>
     scan_tree = ET.Element('scan', attrib=attributes)
-    for ip_str, mac_str in data_set:
+    for ip_str, mac_str in data_dict.values():
         host = ET.SubElement(scan_tree, 'host')
         host.set('IP', ip_str)
         host.set('MAC', mac_str)
@@ -46,11 +46,11 @@ def save_xml(data_set, network_str, path='./saved_scans/'):
     else:
         logging.info('Saved scan to "{}"'.format(save_file))
 
-def compare_xml(data_set, network, path):
+def compare_xml(data_dict, network, path):
     # compare discovered hosts with a .xml save of previous search
     # return #changes from saved scan
     # more info if loglevel <= info
-    assert isinstance(data_set, set)
+    assert isinstance(data_dict, dict)
     assert isinstance(network, str) and '/' in network
     assert isinstance(path, str)
 
@@ -61,7 +61,7 @@ def compare_xml(data_set, network, path):
     scan = _try_parse_xml_file(path)
     if not isinstance(scan, ET.Element):
         # only continue if opening and parsing file succeeded
-        # already enough info logged at this point
+        # already enough debug info logged at this point
         return
     
     logging.info('Comparison with saved scan:')
@@ -84,11 +84,11 @@ def compare_xml(data_set, network, path):
         host_tuple = (ip, mac)
         xml_file_hosts.add(host_tuple)
 
-        if host_tuple not in data_set:
+        if host_tuple not in data_dict.values():
             logging.info('[-] {:<16}  {}'.format(host_tuple[0], host_tuple[1]))
             changes_less += 1
             
-    for ip, mac in data_set:
+    for ip, mac in data_dict.values():
         if (ip, mac) not in xml_file_hosts:
             logging.info('[+] {:<16}  {}'.format(ip, mac))
             changes_more += 1
@@ -181,8 +181,8 @@ def _try_parse_xml_file(path):
                 tree = ET.parse(xml_file)
                 scan = tree.getroot()
             except:
-                logging.error('Could not parse given XML-file. Does it contain more than one XML-tree?', exc_info=True)
-                logging.debug('', exc_info=True)
+                logging.error('Could not parse given XML-file. Does it contain more than one XML-tree?')
+                logging.debug('debug info:\n', exc_info=True)
                 return
             else:
                 if scan.tag != 'scan' or not 'network' in scan.attrib:

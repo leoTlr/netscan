@@ -25,13 +25,10 @@ def main(address, dd_netmask=None):
     else: # non-cidr-notation
         network_addr, broadcast_addr, subnet = calc_addr_range(address, dd_netmask)
 
-    
     # create listener thread
     listener_thread = listenerThread()
     if args.quiet:
         listener_thread.quiet = True
-    if args.save or args.save_file or args.compare:
-        listener_thread.prepare_xml_data = True
 
     listener_thread.start()
 
@@ -57,24 +54,24 @@ def main(address, dd_netmask=None):
 
     # in case output shall be saved, collect data and write to file
     if args.save or args.save_file or args.compare:
-        data_set = listener_thread.xml_set
+        packet_data = listener_thread.packet_info
         if args.save:
-            save_xml(data_set, cidr_nw_str)
+            save_xml(packet_data, cidr_nw_str)
         elif args.save_file:
-            save_xml(data_set, cidr_nw_str, path=args.save_file)
+            save_xml(packet_data, cidr_nw_str, path=args.save_file)
 
     if not listener_thread.stoppedAbnormally() or not sender_thread.stoppedAbnormally():
         if args.compare:
-            nr_changes = compare_xml(data_set, cidr_nw_str, args.compare)
+            nr_changes = compare_xml(packet_data, cidr_nw_str, args.compare)
             if args.quiet:
                 # only output if --quiet
                 print(nr_changes)
             exit(0)
         else:
-            logging.info('{} hosts up in {}'.format(listener_thread.hostup_counter, cidr_nw_str))
+            logging.info('{} hosts up in {}'.format(listener_thread.counted_hosts, cidr_nw_str))
             if args.quiet:
                 # only output if --quiet
-                print(listener_thread.hostup_counter)
+                print(listener_thread.counted_hosts)
             exit(0)
     else:
         logging.error('scan failed')

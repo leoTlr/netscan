@@ -64,11 +64,12 @@ class listenerThread(baseThread):
 
     def __init__(self, quiet=False):
         super().__init__(name='listener', quiet=quiet)
-        self.prepare_xml_data = False
-        self.hostup_counter = 0
-        self.hostup_set = set() # stores already captured ip's
-        self.xml_set = set() # store human-readable ip and mac for saving in xml
-        self.own_ip = None # becomes dest addr of first port unreachable reply
+        self.own_ip = None # becomes dest addr of first reply
+        self.packet_info = dict() # {src = (src_str, mac_str, mac)}
+
+    @property
+    def counted_hosts(self):
+        return len(self.packet_info)
 
     def _initSocket(self):
         try:
@@ -139,17 +140,17 @@ class listenerThread(baseThread):
                             if self.own_ip == ip_header.src_addr:
                                 continue     
 
-                            # prevent double counting
-                            if not ip_header.src_addr in self.hostup_set:
+                            # prevent double printing by building a packet id
+                            # ip_header.src already is an int, eth_header.src is not
+                            eth_src = int.from_bytes(eth_header.src, byteorder='big', signed=False)
+                            packet_id =  eth_src ^ ip_header.src
+                            if not packet_id in self.packet_info.keys(): # O(1)
                                 ip_str = ip_header.src_addr
                                 mac_str = eth_header.src_addr
-                
+                                
                                 logging.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
-                                if self.prepare_xml_data:
-                                    self.xml_set.add((ip_str, mac_str))
 
-                                self.hostup_set.add(ip_header.src_addr)
-                                self.hostup_counter += 1
+                                self.packet_info[packet_id] = (ip_str, mac_str)
 
 
 class udpSenderThread(baseThread):
