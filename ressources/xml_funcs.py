@@ -4,6 +4,7 @@ from xml.dom import minidom # save_xml()
 from pathlib import Path, WindowsPath, PosixPath # save_xml()
 import logging
 
+log = logging.getLogger()
 
 def save_xml(data_dict, network_str, path='./saved_scans/'):
     # save discovered hosts as xml file
@@ -40,11 +41,11 @@ def save_xml(data_dict, network_str, path='./saved_scans/'):
         with save_file.open(mode='a') as xml_file:
             xml_file.write(pretty_xml_string)
     except PermissionError:
-        logging.error('Saving scan failed (no permission)')
+        log.error('Saving scan failed (no permission)')
     except:
-        logging.error('Saving scan failed')
+        log.error('Saving scan failed')
     else:
-        logging.info('Saved scan to "{}"'.format(save_file))
+        log.info('Saved scan to "{}"'.format(save_file))
 
 def compare_xml(data_dict, network, path):
     # compare discovered hosts with a .xml save of previous search
@@ -64,19 +65,19 @@ def compare_xml(data_dict, network, path):
         # already enough debug info logged at this point
         return
     
-    logging.info('Comparison with saved scan:')
+    log.info('Comparison with saved scan:')
     if network != scan.get('network'):
-        logging.warning('Comparing scans from different networks')
+        log.warning('Comparing scans from different networks')
     for host in scan:
         host_keys = host.keys()
         if host.tag != 'host':
-            logging.warning('Invalid element found. Skipping element "{}"'.format(host.tag))
+            log.warning('Invalid element found. Skipping element "{}"'.format(host.tag))
             continue
         elif 'IP' not in host_keys:
-            logging.warning('Host-Element has no attribute "ip". Skipping element')
+            log.warning('Host-Element has no attribute "ip". Skipping element')
             continue
         elif 'MAC' not in host_keys:
-            logging.warning('Host-Element has no attribute "mac". Skipping element')
+            log.warning('Host-Element has no attribute "mac". Skipping element')
             continue
         
         ip = host.get('IP')
@@ -85,18 +86,18 @@ def compare_xml(data_dict, network, path):
         xml_file_hosts.add(host_tuple)
 
         if host_tuple not in data_dict.values():
-            logging.info('[-] {:<16}  {}'.format(host_tuple[0], host_tuple[1]))
+            log.info('[-] {:<16}  {}'.format(host_tuple[0], host_tuple[1]))
             changes_less += 1
             
     for ip, mac in data_dict.values():
         if (ip, mac) not in xml_file_hosts:
-            logging.info('[+] {:<16}  {}'.format(ip, mac))
+            log.info('[+] {:<16}  {}'.format(ip, mac))
             changes_more += 1
 
     changes_combined = changes_less + changes_more
-    logging.info('No longer online: {}'.format(changes_less))
-    logging.info('Additional hosts: {}'.format(changes_more))
-    logging.info('Combined changes: {}'.format(changes_combined))
+    log.info('No longer online: {}'.format(changes_less))
+    log.info('Additional hosts: {}'.format(changes_more))
+    log.info('Combined changes: {}'.format(changes_combined))
 
     return changes_combined
 
@@ -116,7 +117,7 @@ def _prepare_path(path):
             try:
                 p.mkdir(mode=0o777, parents=True)
             except:
-                logging.error('Directory for save could not be created')
+                log.error('Directory for save could not be created')
                 return (None, timestamp)
         else:
             p = _try_append_else_create(p)
@@ -129,7 +130,7 @@ def _prepare_path(path):
         p = _try_append_else_create(p)
         return (p, timestamp)
 
-    logging.error('failed to prepare save file')
+    log.error('failed to prepare save file')
     return (None, timestamp)
 
 def _try_touch(path, filename):
@@ -144,10 +145,10 @@ def _try_touch(path, filename):
         filepath.touch()
         return filepath
     except FileExistsError:
-        logging.warning('File already exists. Will append scan')
+        log.warning('File already exists. Will append scan')
         return filepath
     except:
-        logging.error('Could not write to {}'.format(filepath))
+        log.error('Could not write to {}'.format(filepath))
         return None       
 
 def _try_append_else_create(filepath):
@@ -159,12 +160,12 @@ def _try_append_else_create(filepath):
 
     try:
         if filepath.is_file():
-            logging.warning('File already exists. Will append scan')
+            log.warning('File already exists. Will append scan')
         with filepath.open(mode='a', ) as f:
             f.close()
         return filepath
     except:
-        logging.error('Could not write to {}'.format(filepath))
+        log.error('Could not write to {}'.format(filepath))
         return None
 
 def _try_parse_xml_file(path):
@@ -181,22 +182,22 @@ def _try_parse_xml_file(path):
                 tree = ET.parse(xml_file)
                 scan = tree.getroot()
             except:
-                logging.error('Could not parse given XML-file. Does it contain more than one XML-tree?')
-                logging.debug('debug info:\n', exc_info=True)
+                log.error('Could not parse given XML-file. Does it contain more than one XML-tree?')
+                log.debug('debug info:\n', exc_info=True)
                 return
             else:
                 if scan.tag != 'scan' or not 'network' in scan.attrib:
-                    logging.error('Could not interpret XML-file')
+                    log.error('Could not interpret XML-file')
                     return
                 return scan
 
     except PermissionError:
-        logging.error('No permission to open XML-file')
+        log.error('No permission to open XML-file')
         return
     except FileNotFoundError:
-        logging.error('File not found')
+        log.error('File not found')
         return
     except Exception:
-        logging.error('Opening file failed')
-        logging.debug('', exc_info=True)
+        log.error('Opening file failed')
+        log.debug('', exc_info=True)
         return

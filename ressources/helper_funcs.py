@@ -3,6 +3,8 @@ from datetime import datetime # prepare_path()
 import socket # check_privileges()
 import logging
 
+log = logging.getLogger()
+
 def check_privileges():
     # try creating a socket to ensure sufficient privileges
     
@@ -11,7 +13,7 @@ def check_privileges():
             s.close()
             return True
     except PermissionError:
-        logging.error('root needed')
+        log.error('root needed')
         return False
     except:
         return False
@@ -117,5 +119,5 @@ def print_sorted(data_dict):
     # keys are built like (ip << 48)+mac so it will sort after ip
     sorted_keys = sorted(data_dict.keys())
     for key in sorted_keys:
-        logging.info('[*] Host up:    {:<16}  {}'.format(data_dict[key][0], data_dict[key][1]))
+        log.info('[*] Host up:    {:<16}  {}'.format(data_dict[key][0], data_dict[key][1]))
 

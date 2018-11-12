@@ -5,6 +5,8 @@ from .protocol_structs import IP, ICMP, Ether # udpSenderThread.run(), listenerT
 from ctypes import sizeof # listenerThread.run()
 import logging
 
+log = logging.getLogger()
+
 class baseThread(threading.Thread):
     """ bundles common methods and a shared Event """
 
@@ -30,7 +32,7 @@ class baseThread(threading.Thread):
 
         # there is no $SUDO_USER run in root shell
         if not user_name:
-            logging.warning('can not drop privileges to $SUDO_USER if running in root shell')
+            log.warning('can not drop privileges to $SUDO_USER if running in root shell')
             return
         
         # get uid/gid from name (only works if running with sudo, not with su root)
@@ -79,12 +81,12 @@ class listenerThread(baseThread):
             self.is_privileged = True
             return sock
         except PermissionError:
-            logging.error('no permissions for raw socket. listener stopped')
+            log.error('no permissions for raw socket. listener stopped')
             self.stop(True)
             exit(-1)
         except Exception as e:
-            logging.error('could not create socket for listener. listener stopped')
-            logging.debug(e)
+            log.error('could not create socket for listener. listener stopped')
+            log.debug(e)
             self.stop(True)
             exit(-1)
         finally:
@@ -97,7 +99,7 @@ class listenerThread(baseThread):
         with self._initSocket() as listener:
 
             if not self.stopped():
-                logging.info('Listening for incoming packets...')
+                log.info('Listening for incoming packets...')
 
             self.listener_ready.set()
 
@@ -150,9 +152,9 @@ class listenerThread(baseThread):
                                 mac_str = eth_header.src_addr
                                 
                                 if self.sort: # just save for debug, dont print
-                                    logging.debug('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                                    log.debug('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
                                 else:
-                                    logging.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
+                                    log.info('[*] Host up:    {:<16}  {}'.format(ip_str, mac_str))
 
                                 self.packet_info[packet_id] = (ip_str, mac_str)
 
@@ -173,7 +175,7 @@ class udpSenderThread(baseThread):
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             return sock
         except:
-            logging.error('could not create socket for sender. sender stopped')
+            log.error('could not create socket for sender. sender stopped')
             self.stop(True)
             exit(-1)
         finally:
@@ -192,7 +194,7 @@ class udpSenderThread(baseThread):
             if not self.stopped():
                 addr_str = self.bin2DottedDecimal(self.network_addr)
                 subnet = 32-(self.broadcast_addr-self.network_addr).bit_length()
-                logging.info('Sending packets to {}/{}'.format(addr_str, subnet))
+                log.info('Sending packets to {}/{}'.format(addr_str, subnet))
 
             for bin_addr in self.addressGenerator(self.network_addr, self.broadcast_addr):
                 if self.stopped():
@@ -202,7 +204,7 @@ class udpSenderThread(baseThread):
                 try:
                     sender.sendto(bytes(8), (dd_addr, self.closed_port))
                 except:
-                    logging.warning('sendig of packet to {} failed.'.format(dd_addr))
+                    log.warning('sendig of packet to {} failed.'.format(dd_addr))
 
     def addressGenerator(self, network_addr, broadcast_addr):
         """ yields every host-address in subnet
@@ -212,7 +214,7 @@ class udpSenderThread(baseThread):
             yield network_addr # for /32 check this addr
         elif network_addr+1 == broadcast_addr:
             if not self.quiet:
-                logging.warning('no host-addresses in /31 network')
+                log.warning('no host-addresses in /31 network')
             raise StopIteration # dont yield
         else:
             addr = network_addr

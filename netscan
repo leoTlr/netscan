@@ -73,13 +73,13 @@ def main(address, dd_netmask=None):
                 print(nr_changes)
             exit(0)
         else:
-            logging.info('{} hosts up in {}'.format(listener_thread.counted_hosts, cidr_nw_str))
+            log.info('{} hosts up in {}'.format(listener_thread.counted_hosts, cidr_nw_str))
             if args.quiet:
                 # only output if --quiet
                 print(listener_thread.counted_hosts)
             exit(0)
     else:
-        logging.error('scan failed')
+        log.error('scan failed')
         exit(-1)
 
 
@@ -94,18 +94,19 @@ if __name__ == '__main__':
     else:
         log_level = logging.INFO
     setup_logging(log_level)
+    log = logging.getLogger()
 
     if args.port:
         if is_valid_portnr(args.port):
             pass
         else:
-            logging.error('illegal port')
+            log.error('illegal port')
             exit(-1)
 
     if check_privileges():
         pass
     else:
-        logging.error('could not create socket. exiting')
+        log.error('could not create socket. exiting')
         exit(-1)
 
     if is_valid_cidr(args.ip_address):

@@ -1,4 +1,5 @@
-import logging 
+import logging
+from sys import stdout
 
 # logging is used everywhere instead of print-statements
 # normal output is on loglevel INFO
@@ -16,8 +17,8 @@ class infoWithoutLevelPrefixFormatter(logging.Formatter):
 def setup_logging(log_level):
 
     # create a custom handler, set its formatter to the custom formatter
-    handler = logging.StreamHandler()
-    handler.setFormatter(infoWithoutLevelPrefixFormatter())
+    stdout_handler = logging.StreamHandler(stdout)
+    stdout_handler.setFormatter(infoWithoutLevelPrefixFormatter())
 
     # configure the logger to use the custom handler (arg as list because it needs to be an iterable)
-    logging.basicConfig(level=log_level, handlers=[handler])
+    logging.basicConfig(level=log_level, handlers=[stdout_handler])
